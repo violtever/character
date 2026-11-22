@@ -121,6 +121,11 @@ export function subscribeForumPosts(
             pinnedAt: typeof data.pinnedAt === 'number' ? data.pinnedAt : 0,
             pinOrder: typeof data.pinOrder === 'number' ? data.pinOrder : 0,
             isFeatured: Boolean(data.isFeatured),
+            isImportant: Boolean(data.isImportant),
+            importantAnnouncedAt:
+              typeof data.importantAnnouncedAt === 'number'
+                ? data.importantAnnouncedAt
+                : 0,
             createdAt: toMillis(data.createdAt),
             updatedAt: toMillis(data.updatedAt),
           };
@@ -211,6 +216,7 @@ export interface CreatePostInput {
   pinOnCreate?: boolean;
   pinOrder?: number;
   featureOnCreate?: boolean;
+  importantOnCreate?: boolean;
 }
 
 export async function createForumPost(input: CreatePostInput): Promise<string> {
@@ -225,7 +231,8 @@ export async function createForumPost(input: CreatePostInput): Promise<string> {
   }
 
   const isAdmin = input.user.role === 'admin' && input.user.emailVerified;
-  const shouldPin = isAdmin && Boolean(input.pinOnCreate);
+  const shouldImportant = isAdmin && Boolean(input.importantOnCreate);
+  const shouldPin = isAdmin && (Boolean(input.pinOnCreate) || shouldImportant);
   const shouldFeature = isAdmin && Boolean(input.featureOnCreate);
   const safePinOrder = shouldPin
     ? Math.max(0, Math.min(9999, Math.round(input.pinOrder ?? 0)))
@@ -249,6 +256,8 @@ export async function createForumPost(input: CreatePostInput): Promise<string> {
       pinnedAt: shouldPin ? Date.now() : 0,
       pinOrder: safePinOrder,
       isFeatured: shouldFeature,
+      isImportant: shouldImportant,
+      importantAnnouncedAt: shouldImportant ? Date.now() : 0,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     });
@@ -298,17 +307,28 @@ export async function updateForumPostModerationAdmin(params: {
   isPinned?: boolean;
   pinOrder?: number;
   isFeatured?: boolean;
+  isImportant?: boolean;
 }): Promise<void> {
   const path = `forumPosts/${params.postId}`;
   const updateData: Record<string, unknown> = {
     updatedAt: serverTimestamp(),
   };
 
+  if (typeof params.isImportant === 'boolean') {
+    updateData.isImportant = params.isImportant;
+    updateData.importantAnnouncedAt = params.isImportant ? Date.now() : 0;
+    if (params.isImportant) {
+      updateData.isPinned = true;
+      updateData.pinnedAt = Date.now();
+    }
+  }
   if (typeof params.isPinned === 'boolean') {
     updateData.isPinned = params.isPinned;
     updateData.pinnedAt = params.isPinned ? Date.now() : 0;
     if (!params.isPinned) {
       updateData.pinOrder = 0;
+      updateData.isImportant = false;
+      updateData.importantAnnouncedAt = 0;
     }
   }
   if (typeof params.pinOrder === 'number') {

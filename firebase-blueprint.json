@@ -434,6 +434,8 @@
         "pinnedAt": { "type": "number" },
         "pinOrder": { "type": "number" },
         "isFeatured": { "type": "boolean" },
+        "isImportant": { "type": "boolean" },
+        "importantAnnouncedAt": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -476,6 +478,153 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["postId", "userId", "createdAt"]
+    },
+    "ForumRulesConfig": {
+      "title": "ForumRulesConfig",
+      "description": "Versioned community rules shown before entering the Forum.",
+      "type": "object",
+      "properties": {
+        "version": { "type": "number" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "intro": { "type": "string", "maxLength": 500 },
+        "rules": { "type": "array" },
+        "updatedBy": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["version", "title", "intro", "rules", "updatedBy", "updatedAt"]
+    },
+    "ForumRulesAcceptance": {
+      "title": "ForumRulesAcceptance",
+      "description": "Per-account record of accepted forum rules version.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "acceptedVersion": { "type": "number" },
+        "acceptedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "acceptedVersion", "acceptedAt"]
+    },
+    "ForumViolation": {
+      "title": "ForumViolation",
+      "description": "Recorded content moderation warning, flagged excerpt, reason, and appeal state.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "userName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "userUsername": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "userPhotoURL": { "type": "string", "maxLength": 250000 },
+        "contentType": { "type": "string", "enum": ["post", "comment", "reply"] },
+        "incidentKey": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "flaggedText": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "categories": { "type": "array" },
+        "severity": { "type": "string", "enum": ["low", "medium", "high"] },
+        "strikeNumber": { "type": "number" },
+        "status": { "type": "string", "enum": ["unread", "reviewing", "resolved", "dismissed"] },
+        "appealRequested": { "type": "boolean" },
+        "appealReason": { "type": "string", "maxLength": 1000 },
+        "appealStatus": { "type": "string", "enum": ["none", "pending", "approved", "rejected"] },
+        "appealResolutionNote": { "type": "string", "maxLength": 500 },
+        "adminNote": { "type": "string", "maxLength": 500 },
+        "reviewedBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "userId", "userName", "userUsername", "userPhotoURL",
+        "contentType", "incidentKey", "flaggedText", "reason", "categories",
+        "severity", "strikeNumber", "status", "appealRequested", "appealReason",
+        "appealStatus", "appealResolutionNote", "adminNote", "reviewedBy",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "UserRestriction": {
+      "title": "UserRestriction",
+      "description": "Server-enforced account violation counter and temporary posting/commenting/suspension windows.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "warningCount": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "post_restricted", "comment_restricted", "restricted", "suspended"] },
+        "postRestrictedUntil": { "type": "number" },
+        "commentRestrictedUntil": { "type": "number" },
+        "suspendedUntil": { "type": "number" },
+        "reason": { "type": "string", "maxLength": 400 },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "userId", "warningCount", "status", "postRestrictedUntil",
+        "commentRestrictedUntil", "suspendedUntil", "reason", "updatedBy", "updatedAt"
+      ]
+    },
+    "UserNotification": {
+      "title": "UserNotification",
+      "description": "Private per-account notification for important Admin pinned posts, forum interactions, warnings, and system alerts.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recipientId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "type": { "type": "string", "enum": ["important_post", "interaction", "warning", "system"] },
+        "subtype": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "actorId": { "type": "string", "maxLength": 128 },
+        "actorName": { "type": "string", "maxLength": 80 },
+        "actorPhotoURL": { "type": "string", "maxLength": 250000 },
+        "postId": { "type": "string", "maxLength": 64 },
+        "commentId": { "type": "string", "maxLength": 64 },
+        "violationId": { "type": "string", "maxLength": 64 },
+        "isRead": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "recipientId", "type", "subtype", "title", "body",
+        "actorId", "actorName", "actorPhotoURL", "postId", "commentId",
+        "violationId", "isRead", "createdAt"
+      ]
+    },
+    "ImportantAnnouncement": {
+      "title": "ImportantAnnouncement",
+      "description": "Publicly readable important pinned Admin post announcement for non-intrusive bottom-left popups.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "postId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "excerpt": { "type": "string", "minLength": 1, "maxLength": 280 },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "authorPhotoURL": { "type": "string", "maxLength": 250000 },
+        "active": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "postId", "title", "excerpt", "authorId",
+        "authorName", "authorPhotoURL", "active", "createdAt", "updatedAt"
+      ]
+    },
+    "AdminAuditLog": {
+      "title": "AdminAuditLog",
+      "description": "Immutable append-only accountability record of Admin moderation actions.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "adminId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "adminName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "action": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "targetUserId": { "type": "string", "maxLength": 128 },
+        "targetUserName": { "type": "string", "maxLength": 80 },
+        "targetEntityId": { "type": "string", "maxLength": 128 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 400 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "adminId", "adminName", "action", "targetUserId",
+        "targetUserName", "targetEntityId", "summary", "createdAt"
+      ]
     }
   },
   "firestore": {
@@ -509,15 +658,43 @@
     },
     "/forumPosts/{postId}": {
       "schema": { "$ref": "#/entities/ForumPost" },
-      "description": "Publicly readable forum posts; authenticated users manage own posts; only verified admins can pin, feature, or assign admin role."
+      "description": "Publicly readable forum posts; authenticated unrestricted users manage own posts; only verified admins can pin, feature, mark important, or assign admin role."
     },
     "/forumComments/{commentId}": {
       "schema": { "$ref": "#/entities/ForumComment" },
-      "description": "Publicly readable forum comments and nested replies; users manage own comments; admins may moderate."
+      "description": "Publicly readable forum comments and nested replies; unrestricted users manage own comments; admins may moderate."
     },
     "/forumLikes/{likeId}": {
       "schema": { "$ref": "#/entities/ForumLike" },
       "description": "Publicly readable unique per-user likes keyed by {postId}_{userId}."
+    },
+    "/forumRulesConfig/{docId}": {
+      "schema": { "$ref": "#/entities/ForumRulesConfig" },
+      "description": "Versioned community rules document ('current'); public read, admin-only write."
+    },
+    "/forumRulesAcceptances/{userId}": {
+      "schema": { "$ref": "#/entities/ForumRulesAcceptance" },
+      "description": "Per-account forum rules version acceptance record; owner/admin read, owner write."
+    },
+    "/forumViolations/{violationId}": {
+      "schema": { "$ref": "#/entities/ForumViolation" },
+      "description": "Recorded content warnings, blocked drafts, and appeal requests; owner or admin read; admin moderates."
+    },
+    "/userRestrictions/{userId}": {
+      "schema": { "$ref": "#/entities/UserRestriction" },
+      "description": "Per-account warning count and time-bound posting/commenting/suspension windows; backend-enforced on forum writes."
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/UserNotification" },
+      "description": "Strictly private per-recipient notifications for important posts, interactions, warnings, and system alerts."
+    },
+    "/importantAnnouncements/{announcementId}": {
+      "schema": { "$ref": "#/entities/ImportantAnnouncement" },
+      "description": "Publicly readable important Admin pinned post announcements keyed by postId; admin-only write."
+    },
+    "/adminAuditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AdminAuditLog" },
+      "description": "Immutable append-only audit trail of Admin moderation actions; admin-only read/create."
     },
     "/users/{userId}/favorites/{characterId}": {
       "schema": { "$ref": "#/entities/UserFavorite" },

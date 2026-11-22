@@ -107,6 +107,8 @@ export interface ForumPost {
   pinnedAt: number;
   pinOrder: number;
   isFeatured: boolean;
+  isImportant?: boolean;
+  importantAnnouncedAt?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -130,6 +132,126 @@ export interface ForumLike {
   postId: string;
   userId: string;
   createdAt: number;
+}
+
+export interface ForumRulesConfig {
+  version: number;
+  title: string;
+  intro: string;
+  rules: string[];
+  updatedBy: string;
+  updatedAt: number;
+}
+
+export interface ForumRulesAcceptance {
+  userId: string;
+  acceptedVersion: number;
+  acceptedAt: number;
+}
+
+export type ModerationContentType = 'post' | 'comment' | 'reply';
+export type ModerationSeverity = 'low' | 'medium' | 'high';
+export type ViolationStatus = 'unread' | 'reviewing' | 'resolved' | 'dismissed';
+export type AppealStatus = 'none' | 'pending' | 'approved' | 'rejected';
+
+export interface ForumViolation {
+  id: string;
+  userId: string;
+  userName: string;
+  userUsername: string;
+  userPhotoURL: string;
+  contentType: ModerationContentType;
+  incidentKey: string;
+  flaggedText: string;
+  reason: string;
+  categories: string[];
+  severity: ModerationSeverity;
+  strikeNumber: number;
+  status: ViolationStatus;
+  appealRequested: boolean;
+  appealReason: string;
+  appealStatus: AppealStatus;
+  appealResolutionNote: string;
+  adminNote: string;
+  reviewedBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type RestrictionStatus =
+  | 'active'
+  | 'post_restricted'
+  | 'comment_restricted'
+  | 'restricted'
+  | 'suspended';
+
+export interface UserRestriction {
+  userId: string;
+  warningCount: number;
+  status: RestrictionStatus;
+  postRestrictedUntil: number;
+  commentRestrictedUntil: number;
+  suspendedUntil: number;
+  reason: string;
+  updatedBy: string;
+  updatedAt: number;
+}
+
+export type NotificationType =
+  | 'important_post'
+  | 'interaction'
+  | 'warning'
+  | 'system';
+
+export interface UserNotification {
+  id: string;
+  recipientId: string;
+  type: NotificationType;
+  subtype: string;
+  title: string;
+  body: string;
+  actorId: string;
+  actorName: string;
+  actorPhotoURL: string;
+  postId: string;
+  commentId: string;
+  violationId: string;
+  isRead: boolean;
+  createdAt: number;
+}
+
+export interface ImportantAnnouncement {
+  id: string;
+  postId: string;
+  title: string;
+  excerpt: string;
+  authorId: string;
+  authorName: string;
+  authorPhotoURL: string;
+  active: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AdminAuditLog {
+  id: string;
+  adminId: string;
+  adminName: string;
+  action: string;
+  targetUserId: string;
+  targetUserName: string;
+  targetEntityId: string;
+  summary: string;
+  createdAt: number;
+}
+
+export interface ModerationCheckResult {
+  flagged: boolean;
+  uncertain?: boolean;
+  severity: ModerationSeverity;
+  categories: string[];
+  reason: string;
+  matchedExcerpt: string;
 }
 
 export interface PendingGuestAction {

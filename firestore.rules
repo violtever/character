@@ -43,6 +43,20 @@ service cloud.firestore {
       return username is string && username.size() >= 3 && username.size() <= 32 && username.matches('^[a-z0-9_\\-]+$');
     }
 
+    function isPostRestrictedNow() {
+      return exists(/databases/$(database)/documents/userRestrictions/$(request.auth.uid)) && (
+        get(/databases/$(database)/documents/userRestrictions/$(request.auth.uid)).data.suspendedUntil > request.time.toMillis() ||
+        get(/databases/$(database)/documents/userRestrictions/$(request.auth.uid)).data.postRestrictedUntil > request.time.toMillis()
+      );
+    }
+
+    function isCommentRestrictedNow() {
+      return exists(/databases/$(database)/documents/userRestrictions/$(request.auth.uid)) && (
+        get(/databases/$(database)/documents/userRestrictions/$(request.auth.uid)).data.suspendedUntil > request.time.toMillis() ||
+        get(/databases/$(database)/documents/userRestrictions/$(request.auth.uid)).data.commentRestrictedUntil > request.time.toMillis()
+      );
+    }
+
     function isValidCharacter(data) {
       return data.keys().hasAll([
           'id', 'name', 'image', 'subtitle', 'genre', 'tags',
@@ -165,6 +179,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'id', 'authorId', 'authorRole', 'authorName', 'authorUsername', 'authorPhotoURL',
           'title', 'content', 'image', 'isPinned', 'pinnedAt', 'pinOrder', 'isFeatured',
+          'isImportant', 'importantAnnouncedAt',
           'createdAt', 'updatedAt'
         ]) &&
         data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
@@ -180,6 +195,8 @@ service cloud.firestore {
         data.pinnedAt is number && data.pinnedAt >= 0 &&
         data.pinOrder is number && data.pinOrder >= 0 && data.pinOrder <= 9999 &&
         data.isFeatured is bool &&
+        (!('isImportant' in data) || data.isImportant is bool) &&
+        (!('importantAnnouncedAt' in data) || (data.importantAnnouncedAt is number && data.importantAnnouncedAt >= 0)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -213,6 +230,152 @@ service cloud.firestore {
         data.keys().hasOnly(['postId', 'userId', 'createdAt']) &&
         data.postId is string && data.postId.size() >= 1 && data.postId.size() <= 64 && data.postId.matches('^[a-zA-Z0-9_\\-]+$') &&
         data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidForumRulesConfig(data) {
+      return data.keys().hasAll(['version', 'title', 'intro', 'rules', 'updatedBy', 'updatedAt']) &&
+        data.keys().hasOnly(['version', 'title', 'intro', 'rules', 'updatedBy', 'updatedAt']) &&
+        data.version is number && data.version >= 1 && data.version <= 99999 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.intro is string && data.intro.size() <= 500 &&
+        data.rules is list && data.rules.size() >= 1 && data.rules.size() <= 15 &&
+        data.rules[0] is string && data.rules[0].size() <= 300 &&
+        data.updatedBy is string && data.updatedBy.size() >= 1 && data.updatedBy.size() <= 128 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidForumRulesAcceptance(data) {
+      return data.keys().hasAll(['userId', 'acceptedVersion', 'acceptedAt']) &&
+        data.keys().hasOnly(['userId', 'acceptedVersion', 'acceptedAt']) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.acceptedVersion is number && data.acceptedVersion >= 1 && data.acceptedVersion <= 99999 &&
+        data.acceptedAt is timestamp;
+    }
+
+    function isValidForumViolation(data) {
+      return data.keys().hasAll([
+          'id', 'userId', 'userName', 'userUsername', 'userPhotoURL',
+          'contentType', 'incidentKey', 'flaggedText', 'reason', 'categories',
+          'severity', 'strikeNumber', 'status', 'appealRequested', 'appealReason',
+          'appealStatus', 'appealResolutionNote', 'adminNote', 'reviewedBy',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'userId', 'userName', 'userUsername', 'userPhotoURL',
+          'contentType', 'incidentKey', 'flaggedText', 'reason', 'categories',
+          'severity', 'strikeNumber', 'status', 'appealRequested', 'appealReason',
+          'appealStatus', 'appealResolutionNote', 'adminNote', 'reviewedBy',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.userName is string && data.userName.size() >= 1 && data.userName.size() <= 80 &&
+        data.userUsername is string && data.userUsername.size() >= 1 && data.userUsername.size() <= 32 &&
+        data.userPhotoURL is string && data.userPhotoURL.size() <= 250000 &&
+        data.contentType is string && data.contentType in ['post', 'comment', 'reply'] &&
+        data.incidentKey is string && data.incidentKey.size() >= 1 && data.incidentKey.size() <= 128 &&
+        data.flaggedText is string && data.flaggedText.size() >= 1 && data.flaggedText.size() <= 3000 &&
+        data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 300 &&
+        data.categories is list && data.categories.size() <= 8 && (data.categories.size() == 0 || (data.categories[0] is string && data.categories[0].size() <= 40)) &&
+        data.severity is string && data.severity in ['low', 'medium', 'high'] &&
+        data.strikeNumber is number && data.strikeNumber >= 0 && data.strikeNumber <= 999 &&
+        data.status is string && data.status in ['unread', 'reviewing', 'resolved', 'dismissed'] &&
+        data.appealRequested is bool &&
+        data.appealReason is string && data.appealReason.size() <= 1000 &&
+        data.appealStatus is string && data.appealStatus in ['none', 'pending', 'approved', 'rejected'] &&
+        data.appealResolutionNote is string && data.appealResolutionNote.size() <= 500 &&
+        data.adminNote is string && data.adminNote.size() <= 500 &&
+        data.reviewedBy is string && data.reviewedBy.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserRestriction(data) {
+      return data.keys().hasAll([
+          'userId', 'warningCount', 'status', 'postRestrictedUntil',
+          'commentRestrictedUntil', 'suspendedUntil', 'reason', 'updatedBy', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'userId', 'warningCount', 'status', 'postRestrictedUntil',
+          'commentRestrictedUntil', 'suspendedUntil', 'reason', 'updatedBy', 'updatedAt'
+        ]) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.warningCount is number && data.warningCount >= 0 && data.warningCount <= 999 &&
+        data.status is string && data.status in ['active', 'post_restricted', 'comment_restricted', 'restricted', 'suspended'] &&
+        data.postRestrictedUntil is number && data.postRestrictedUntil >= 0 &&
+        data.commentRestrictedUntil is number && data.commentRestrictedUntil >= 0 &&
+        data.suspendedUntil is number && data.suspendedUntil >= 0 &&
+        data.reason is string && data.reason.size() <= 400 &&
+        data.updatedBy is string && data.updatedBy.size() <= 128 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserNotification(data) {
+      return data.keys().hasAll([
+          'id', 'recipientId', 'type', 'subtype', 'title', 'body',
+          'actorId', 'actorName', 'actorPhotoURL', 'postId', 'commentId',
+          'violationId', 'isRead', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'recipientId', 'type', 'subtype', 'title', 'body',
+          'actorId', 'actorName', 'actorPhotoURL', 'postId', 'commentId',
+          'violationId', 'isRead', 'createdAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 128 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.recipientId is string && data.recipientId.size() >= 1 && data.recipientId.size() <= 128 &&
+        data.type is string && data.type in ['important_post', 'interaction', 'warning', 'system'] &&
+        data.subtype is string && data.subtype.size() >= 1 && data.subtype.size() <= 40 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+        data.body is string && data.body.size() >= 1 && data.body.size() <= 500 &&
+        data.actorId is string && data.actorId.size() <= 128 &&
+        data.actorName is string && data.actorName.size() <= 80 &&
+        data.actorPhotoURL is string && data.actorPhotoURL.size() <= 250000 &&
+        data.postId is string && data.postId.size() <= 64 &&
+        data.commentId is string && data.commentId.size() <= 64 &&
+        data.violationId is string && data.violationId.size() <= 64 &&
+        data.isRead is bool &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidImportantAnnouncement(data) {
+      return data.keys().hasAll([
+          'id', 'postId', 'title', 'excerpt', 'authorId',
+          'authorName', 'authorPhotoURL', 'active', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'postId', 'title', 'excerpt', 'authorId',
+          'authorName', 'authorPhotoURL', 'active', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.postId is string && data.postId.size() >= 1 && data.postId.size() <= 64 && data.postId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+        data.excerpt is string && data.excerpt.size() >= 1 && data.excerpt.size() <= 280 &&
+        data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+        data.authorPhotoURL is string && data.authorPhotoURL.size() <= 250000 &&
+        data.active is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAdminAuditLog(data) {
+      return data.keys().hasAll([
+          'id', 'adminId', 'adminName', 'action', 'targetUserId',
+          'targetUserName', 'targetEntityId', 'summary', 'createdAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'adminId', 'adminName', 'action', 'targetUserId',
+          'targetUserName', 'targetEntityId', 'summary', 'createdAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.adminId is string && data.adminId.size() >= 1 && data.adminId.size() <= 128 &&
+        data.adminName is string && data.adminName.size() >= 1 && data.adminName.size() <= 80 &&
+        data.action is string && data.action.size() >= 1 && data.action.size() <= 60 &&
+        data.targetUserId is string && data.targetUserId.size() <= 128 &&
+        data.targetUserName is string && data.targetUserName.size() <= 80 &&
+        data.targetEntityId is string && data.targetEntityId.size() <= 128 &&
+        data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 400 &&
         data.createdAt is timestamp;
     }
 
@@ -408,7 +571,7 @@ service cloud.firestore {
       allow delete: if isValidId(userId) && isAdmin();
     }
 
-    // 7. Public Forum: Posts (Guest read; User own CRUD; Admin pin/feature/moderate)
+    // 7. Public Forum: Posts (Guest read; Unrestricted User own CRUD; Admin pin/important/feature/moderate)
     match /forumPosts/{postId} {
       allow get: if isValidId(postId);
       allow list: if true;
@@ -423,7 +586,10 @@ service cloud.firestore {
         (incoming().isPinned == false || isAdmin()) &&
         (incoming().pinnedAt == 0 || isAdmin()) &&
         (incoming().pinOrder == 0 || isAdmin()) &&
-        (incoming().isFeatured == false || isAdmin());
+        (incoming().isFeatured == false || isAdmin()) &&
+        (!('isImportant' in incoming()) || incoming().isImportant == false || isAdmin()) &&
+        (!('importantAnnouncedAt' in incoming()) || incoming().importantAnnouncedAt == 0 || isAdmin()) &&
+        (isAdmin() || !isPostRestrictedNow());
       allow update: if isValidId(postId) &&
         isVerified() &&
         isValidForumPost(incoming()) &&
@@ -433,6 +599,7 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time && (
           (existing().authorId == request.auth.uid &&
+            !isPostRestrictedNow() &&
             incoming().isPinned == existing().isPinned &&
             incoming().pinnedAt == existing().pinnedAt &&
             incoming().pinOrder == existing().pinOrder &&
@@ -443,7 +610,8 @@ service cloud.firestore {
           (isAdmin() &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'title', 'content', 'image', 'isPinned', 'pinnedAt', 'pinOrder',
-              'isFeatured', 'authorName', 'authorPhotoURL', 'updatedAt'
+              'isFeatured', 'isImportant', 'importantAnnouncedAt',
+              'authorName', 'authorPhotoURL', 'updatedAt'
             ]))
         );
       allow delete: if isValidId(postId) && isVerified() && (
@@ -451,7 +619,7 @@ service cloud.firestore {
       );
     }
 
-    // 8. Public Forum: Comments & Replies (Guest read; User own CRUD; Admin delete)
+    // 8. Public Forum: Comments & Replies (Guest read; Unrestricted User own CRUD; Admin delete)
     match /forumComments/{commentId} {
       allow get: if isValidId(commentId);
       allow list: if true;
@@ -463,6 +631,7 @@ service cloud.firestore {
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time &&
         (incoming().authorRole == 'user' || (incoming().authorRole == 'admin' && isAdmin())) &&
+        (isAdmin() || !isCommentRestrictedNow()) &&
         exists(/databases/$(database)/documents/forumPosts/$(incoming().postId));
       allow update: if isValidId(commentId) &&
         isVerified() &&
@@ -475,6 +644,7 @@ service cloud.firestore {
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         existing().authorId == request.auth.uid &&
+        (isAdmin() || !isCommentRestrictedNow()) &&
         incoming().diff(existing()).affectedKeys().hasOnly([
           'content', 'authorName', 'authorPhotoURL', 'updatedAt'
         ]);
@@ -500,7 +670,215 @@ service cloud.firestore {
       );
     }
 
-    // 10. Non-PII Username Uniqueness Reservations
+    // 10. Forum Community Rules Configuration (Public read; Admin version bump & edit)
+    match /forumRulesConfig/{docId} {
+      allow get: if docId == 'current';
+      allow list: if false;
+      allow create: if docId == 'current' &&
+        isValidForumRulesConfig(incoming()) &&
+        incoming().updatedBy == request.auth.uid &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if docId == 'current' &&
+        isValidForumRulesConfig(incoming()) &&
+        incoming().version >= existing().version &&
+        incoming().updatedBy == request.auth.uid &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'version', 'title', 'intro', 'rules', 'updatedBy', 'updatedAt'
+        ]) &&
+        isAdmin();
+      allow delete: if false;
+    }
+
+    // 11. Per-Account Forum Rules Acceptance
+    match /forumRulesAcceptances/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) &&
+        isOwner(userId) &&
+        isValidForumRulesAcceptance(incoming()) &&
+        incoming().userId == userId &&
+        incoming().acceptedAt == request.time;
+      allow update: if isValidId(userId) &&
+        isOwner(userId) &&
+        isValidForumRulesAcceptance(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().acceptedVersion >= existing().acceptedVersion &&
+        incoming().acceptedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['acceptedVersion', 'acceptedAt']);
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // 12. Forum Moderation Violations & Appeals (Owner or Admin read; Owner may only file appeal; Admin moderates)
+    match /forumViolations/{violationId} {
+      allow get: if isValidId(violationId) && (
+        isAdmin() || (isVerified() && existing().userId == request.auth.uid)
+      );
+      allow list: if isAdmin() || (isVerified() && resource.data.userId == request.auth.uid);
+      allow create: if isValidId(violationId) &&
+        isVerified() &&
+        isValidForumViolation(incoming()) &&
+        incoming().id == violationId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            incoming().userId == request.auth.uid &&
+            incoming().status == 'unread' &&
+            incoming().appealRequested == false &&
+            incoming().appealReason == '' &&
+            incoming().appealStatus == 'none' &&
+            incoming().appealResolutionNote == '' &&
+            incoming().adminNote == '' &&
+            incoming().reviewedBy == ''
+          )
+        );
+      allow update: if isValidId(violationId) &&
+        isVerified() &&
+        isValidForumViolation(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().userId == existing().userId &&
+        incoming().incidentKey == existing().incidentKey &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          (existing().userId == request.auth.uid &&
+            existing().appealStatus == 'none' &&
+            incoming().appealRequested == true &&
+            incoming().appealStatus == 'pending' &&
+            incoming().appealReason.size() >= 5 &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'appealRequested', 'appealReason', 'appealStatus', 'updatedAt'
+            ])) ||
+          (isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'appealStatus', 'appealResolutionNote', 'adminNote', 'reviewedBy', 'updatedAt'
+            ]))
+        );
+      allow delete: if isValidId(violationId) && isAdmin();
+    }
+
+    // 13. Per-Account Restrictions & Violation Counter (Monotonic for owners; Admin full control)
+    match /userRestrictions/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) &&
+        isVerified() &&
+        isValidUserRestriction(incoming()) &&
+        incoming().userId == userId &&
+        incoming().updatedAt == request.time && (
+          isAdmin() || (
+            isOwner(userId) &&
+            incoming().warningCount >= 1 &&
+            incoming().warningCount <= 10 &&
+            incoming().updatedBy == 'system'
+          )
+        );
+      allow update: if isValidId(userId) &&
+        isVerified() &&
+        isValidUserRestriction(incoming()) &&
+        incoming().userId == existing().userId &&
+        incoming().updatedAt == request.time && (
+          (isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'warningCount', 'status', 'postRestrictedUntil',
+              'commentRestrictedUntil', 'suspendedUntil', 'reason', 'updatedBy', 'updatedAt'
+            ])) ||
+          (isOwner(userId) &&
+            incoming().warningCount >= existing().warningCount &&
+            incoming().warningCount <= existing().warningCount + 1 &&
+            incoming().postRestrictedUntil >= existing().postRestrictedUntil &&
+            incoming().commentRestrictedUntil >= existing().commentRestrictedUntil &&
+            incoming().suspendedUntil >= existing().suspendedUntil &&
+            incoming().updatedBy == 'system' &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'warningCount', 'status', 'postRestrictedUntil',
+              'commentRestrictedUntil', 'suspendedUntil', 'reason', 'updatedBy', 'updatedAt'
+            ]))
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // 14. Strictly Private Per-Account Notifications
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isVerified() && (
+        existing().recipientId == request.auth.uid || isAdmin()
+      );
+      allow list: if isVerified() && resource.data.recipientId == request.auth.uid;
+      allow create: if isValidId(notificationId) &&
+        isVerified() &&
+        isValidUserNotification(incoming()) &&
+        incoming().id == notificationId &&
+        incoming().isRead == false &&
+        incoming().createdAt == request.time && (
+          isAdmin() ||
+          (incoming().type == 'interaction' &&
+            incoming().actorId == request.auth.uid &&
+            incoming().recipientId != request.auth.uid &&
+            incoming().postId.size() >= 1 &&
+            exists(/databases/$(database)/documents/forumPosts/$(incoming().postId))) ||
+          (incoming().type == 'warning' &&
+            incoming().recipientId == request.auth.uid &&
+            incoming().violationId.size() >= 1) ||
+          (incoming().type == 'system' &&
+            incoming().subtype in ['admin_violation_alert', 'admin_appeal_alert'] &&
+            incoming().actorId == request.auth.uid &&
+            incoming().violationId.size() >= 1 &&
+            exists(/databases/$(database)/documents/publicProfiles/$(incoming().recipientId)) &&
+            get(/databases/$(database)/documents/publicProfiles/$(incoming().recipientId)).data.role == 'admin')
+        );
+      allow update: if isValidId(notificationId) &&
+        isVerified() &&
+        isValidUserNotification(incoming()) &&
+        existing().recipientId == request.auth.uid &&
+        incoming().id == existing().id &&
+        incoming().recipientId == existing().recipientId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['isRead']);
+      allow delete: if isValidId(notificationId) && isVerified() && (
+        existing().recipientId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // 15. Public Important Admin Pinned Post Announcements (Non-PII popup feed; Admin-only write)
+    match /importantAnnouncements/{announcementId} {
+      allow get: if isValidId(announcementId);
+      allow list: if true;
+      allow create: if isValidId(announcementId) &&
+        isValidImportantAnnouncement(incoming()) &&
+        incoming().id == announcementId &&
+        incoming().postId == announcementId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin() &&
+        exists(/databases/$(database)/documents/forumPosts/$(incoming().postId));
+      allow update: if isValidId(announcementId) &&
+        isValidImportantAnnouncement(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().postId == existing().postId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'excerpt', 'authorName', 'authorPhotoURL', 'active', 'updatedAt'
+        ]) &&
+        isAdmin();
+      allow delete: if isValidId(announcementId) && isAdmin();
+    }
+
+    // 16. Immutable Append-Only Admin Moderation Audit Log
+    match /adminAuditLogs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isAdmin();
+      allow create: if isValidId(logId) &&
+        isValidAdminAuditLog(incoming()) &&
+        incoming().id == logId &&
+        incoming().adminId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // 17. Non-PII Username Uniqueness Reservations
     match /usernames/{username} {
       allow get: if isValidUsername(username);
       allow list: if false;
@@ -516,7 +894,7 @@ service cloud.firestore {
       );
     }
 
-    // 11. Trusted Admin Allowlist
+    // 18. Trusted Admin Allowlist
     match /admins/{adminUid} {
       allow get: if isValidId(adminUid) && (isOwner(adminUid) || isAdmin());
       allow list: if isAdmin();
@@ -530,7 +908,7 @@ service cloud.firestore {
       allow delete: if isValidId(adminUid) && isAdmin() && adminUid != request.auth.uid;
     }
 
-    // 12. Startup Connection Probe
+    // 19. Startup Connection Probe
     match /test/{docId} {
       allow get: if docId == 'connection';
       allow list, write: if false;

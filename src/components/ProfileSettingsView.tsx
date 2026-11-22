@@ -1,26 +1,45 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { motion } from 'motion/react';
 import {
   AlertTriangle,
   ArrowLeft,
   Camera,
   CheckCircle2,
+  Clock,
   Loader2,
   Lock,
   Mail,
+  Send,
   Shield,
+  ShieldAlert,
+  ShieldCheck,
   Trash2,
   User,
 } from 'lucide-react';
 import { updateOwnProfile } from '../services/archiveService';
 import { validateImageUploadFile } from '../services/forumService';
-import type { ThemeMode, UserProfile } from '../types/archive';
+import {
+  formatDeadlineVi,
+  getActiveRestrictionState,
+  submitViolationAppeal,
+} from '../services/moderationService';
+import type {
+  ForumViolation,
+  PublicUserProfile,
+  ThemeMode,
+  UserProfile,
+  UserRestriction,
+} from '../types/archive';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sfx } from '../utils/sfxEngine';
+import { formatRelativeVietnameseTime } from './ForumPostDetailModal';
 
 interface ProfileSettingsViewProps {
   theme: ThemeMode;
   currentUser: UserProfile;
+  ownRestriction?: UserRestriction | null;
+  ownViolations?: ForumViolation[];
+  publicProfiles?: Record<string, PublicUserProfile>;
   onProfileUpdated: (updated: UserProfile) => void;
   onBack: () => void;
   onNotify: (message: string) => void;
@@ -29,6 +48,9 @@ interface ProfileSettingsViewProps {
 export function ProfileSettingsView({
   theme,
   currentUser,
+  ownRestriction = null,
+  ownViolations = [],
+  publicProfiles = {},
   onProfileUpdated,
   onBack,
   onNotify,
@@ -38,6 +60,43 @@ export function ProfileSettingsView({
   const [processingAvatar, setProcessingAvatar] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // Inline appeal submission state
+  const [appealingViolationId, setAppealingViolationId] = useState<string | null>(
+    null
+  );
+  const [appealDraft, setAppealDraft] = useState('');
+  const [submittingAppeal, setSubmittingAppeal] = useState(false);
+
+  const activeRestriction = useMemo(
+    () => getActiveRestrictionState(ownRestriction),
+    [ownRestriction]
+  );
+
+  const handleSubmitProfileAppeal = async (violationId: string) => {
+    if (!appealDraft.trim()) return;
+    setSubmittingAppeal(true);
+    try {
+      await submitViolationAppeal({
+        violationId,
+        user: currentUser,
+        appealReason: appealDraft,
+        publicProfiles,
+      });
+      sfx.play('welcomeClick');
+      setAppealingViolationId(null);
+      setAppealDraft('');
+      onNotify('Đã gửi yêu cầu xem xét lại đến Quản trị viên!');
+    } catch (err) {
+      onNotify(
+        err instanceof Error
+          ? err.message
+          : 'Không thể gửi yêu cầu xem xét lúc này.'
+      );
+    } finally {
+      setSubmittingAppeal(false);
+    }
+  };
 
   useEffect(() => {
     setDisplayName(currentUser.displayName);
@@ -388,6 +447,204 @@ export function ProfileSettingsView({
           </div>
         </aside>
       </div>
+
+      {/* ====================================================================
+          ACCOUNT STANDING & VIOLATION / APPEAL HISTORY
+         ==================================================================== */}
+      <section
+        id="profile-account-standing"
+        className="theme-card mt-8 border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-6 sm:p-8"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--border-hairline)] pb-5">
+          <div>
+            <p className="font-mono-archive text-[11px] tracking-[0.2em] text-[var(--accent-primary)] uppercase">
+              TRẠNG THÁI CỘNG ĐỒNG · NỘI QUY DIỄN ĐÀN
+            </p>
+            <h2 className="font-editorial mt-1 text-2xl font-semibold text-[var(--ink-primary)] sm:text-3xl">
+              Trạng thái tài khoản &amp; Lịch sử cảnh cáo
+            </h2>
+          </div>
+
+          <div
+            className={`theme-control inline-flex items-center gap-2 border px-3.5 py-2 text-xs font-semibold ${
+              activeRestriction.activeUntil > Date.now()
+                ? 'border-rose-500/45 bg-rose-500/10 text-rose-600 dark:text-rose-300'
+                : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+            }`}
+          >
+            {activeRestriction.activeUntil > Date.now() ? (
+              <ShieldAlert className="h-4 w-4" />
+            ) : (
+              <ShieldCheck className="h-4 w-4" />
+            )}
+            <span>{activeRestriction.labelVi}</span>
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="theme-control border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/70 p-4">
+            <p className="font-mono-archive text-[10px] tracking-wider text-[var(--ink-muted)] uppercase">
+              Số lần nhắc nhở / cảnh cáo
+            </p>
+            <p className="font-editorial mt-1 text-3xl font-semibold tabular-nums text-[var(--ink-primary)]">
+              {ownRestriction?.warningCount ?? ownViolations.length}
+            </p>
+          </div>
+          <div className="theme-control border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/70 p-4 sm:col-span-2">
+            <p className="font-mono-archive text-[10px] tracking-wider text-[var(--ink-muted)] uppercase">
+              Tình trạng tương tác hiện tại
+            </p>
+            {activeRestriction.activeUntil > Date.now() ? (
+              <div className="mt-1 space-y-1 text-xs text-rose-600 dark:text-rose-300">
+                <p className="flex items-center gap-1.5 font-semibold">
+                  <Clock className="h-3.5 w-3.5" />
+                  <span>
+                    Hiệu lực đến {formatDeadlineVi(activeRestriction.activeUntil)}
+                  </span>
+                </p>
+                {ownRestriction?.reason && (
+                  <p className="text-[var(--ink-secondary)]">
+                    Lý do: {ownRestriction.reason}
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="mt-1.5 text-xs leading-relaxed text-[var(--ink-secondary)]">
+                Tài khoản của bạn đang ở trạng thái tốt và có đầy đủ quyền đăng
+                bài, bình luận, thả tim trên diễn đàn.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Own Violation Log */}
+        <div className="mt-6">
+          <h3 className="font-mono-archive text-[11px] font-semibold tracking-wider text-[var(--ink-muted)] uppercase">
+            Lịch sử ghi nhận gần đây ({ownViolations.length})
+          </h3>
+
+          {ownViolations.length === 0 ? (
+            <div className="theme-control mt-3 border border-dashed border-[var(--border-hairline)] bg-[var(--bg-canvas)]/50 p-6 text-center text-xs text-[var(--ink-muted)]">
+              Bạn chưa có cảnh cáo nào. Cảm ơn bạn đã góp phần giữ gìn diễn đàn
+              văn minh!
+            </div>
+          ) : (
+            <div className="mt-3 space-y-3">
+              {ownViolations.map((vio) => {
+                const canAppeal =
+                  !vio.appealRequested && vio.status !== 'dismissed';
+                const isAppealing = appealingViolationId === vio.id;
+
+                return (
+                  <div
+                    key={vio.id}
+                    className="theme-control border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/80 p-4"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="rounded bg-rose-500/15 px-2 py-0.5 font-mono-archive text-[10px] font-semibold text-rose-600 dark:text-rose-300">
+                          Lần #{vio.strikeNumber}
+                        </span>
+                        <span className="font-mono-archive text-[11px] text-[var(--ink-muted)]">
+                          {formatRelativeVietnameseTime(vio.createdAt)}
+                        </span>
+                        {vio.status === 'dismissed' && (
+                          <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-300">
+                            Admin đã hủy cảnh cáo
+                          </span>
+                        )}
+                        {vio.appealStatus === 'pending' && (
+                          <span className="rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-300">
+                            Đang chờ Admin xem xét khiếu nại
+                          </span>
+                        )}
+                        {vio.appealStatus === 'approved' && (
+                          <span className="rounded bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-300">
+                            Khiếu nại được chấp nhận
+                          </span>
+                        )}
+                        {vio.appealStatus === 'rejected' && (
+                          <span className="rounded bg-rose-500/15 px-2 py-0.5 text-[10px] font-semibold text-rose-600 dark:text-rose-300">
+                            Khiếu nại bị từ chối
+                          </span>
+                        )}
+                      </div>
+
+                      {canAppeal && !isAppealing && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAppealingViolationId(vio.id);
+                            setAppealDraft('');
+                          }}
+                          className="theme-control h-7 border border-[var(--border-strong)] px-2.5 text-[11px] font-medium text-[var(--accent-primary)] hover:border-[var(--accent-primary)]"
+                        >
+                          Gửi yêu cầu xem xét lại
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="mt-2 text-xs font-medium text-[var(--ink-primary)]">
+                      Lý do: {vio.reason}
+                    </p>
+                    {vio.flaggedText && (
+                      <p className="mt-1.5 line-clamp-2 rounded border border-[var(--border-hairline)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-[11px] italic text-[var(--ink-muted)]">
+                        “{vio.flaggedText}”
+                      </p>
+                    )}
+                    {vio.appealResolutionNote && (
+                      <p className="mt-2 text-[11px] text-[var(--accent-primary)]">
+                        Phản hồi của Admin: {vio.appealResolutionNote}
+                      </p>
+                    )}
+
+                    {isAppealing && (
+                      <div className="mt-3 space-y-2 border-t border-[var(--border-hairline)] pt-3">
+                        <textarea
+                          rows={2}
+                          maxLength={1000}
+                          value={appealDraft}
+                          onChange={(e) => setAppealDraft(e.target.value)}
+                          placeholder="Giải thích ngữ cảnh để Admin xem xét gỡ cảnh cáo nếu hệ thống nhận nhầm..."
+                          className="theme-control w-full border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-xs text-[var(--ink-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
+                        />
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            disabled={submittingAppeal}
+                            onClick={() => {
+                              setAppealingViolationId(null);
+                              setAppealDraft('');
+                            }}
+                            className="theme-control h-8 border border-[var(--border-hairline)] px-3 text-[11px] text-[var(--ink-secondary)]"
+                          >
+                            Hủy
+                          </button>
+                          <button
+                            type="button"
+                            disabled={
+                              submittingAppeal || appealDraft.trim().length < 5
+                            }
+                            onClick={() => void handleSubmitProfileAppeal(vio.id)}
+                            className="theme-control inline-flex h-8 items-center gap-1.5 bg-[var(--accent-primary)] px-3.5 text-[11px] font-semibold text-[var(--accent-ink)] disabled:opacity-50"
+                          >
+                            {submittingAppeal ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <Send className="h-3 w-3" />
+                            )}
+                            <span>Gửi khiếu nại</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
     </motion.section>
   );
 }

@@ -296,6 +296,47 @@ input[type='range'].archive-range:hover::-webkit-slider-thumb {
   transform: scale(1.22);
 }
 
+/* Subtle warning shake animation for moderation modal (short, non-jarring) */
+@keyframes gentleWarningShake {
+  0%, 100% {
+    transform: translate3d(0, 0, 0);
+  }
+  18% {
+    transform: translate3d(-6px, 0, 0) rotate(-0.5deg);
+  }
+  36% {
+    transform: translate3d(5px, 0, 0) rotate(0.45deg);
+  }
+  54% {
+    transform: translate3d(-4px, 0, 0) rotate(-0.3deg);
+  }
+  72% {
+    transform: translate3d(3px, 0, 0) rotate(0.2deg);
+  }
+  88% {
+    transform: translate3d(-1.5px, 0, 0);
+  }
+}
+
+.animate-warning-shake {
+  animation: gentleWarningShake 520ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes softBeaconPulse {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.12);
+  }
+}
+
+.animate-soft-beacon {
+  animation: softBeaconPulse 1.8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -304,7 +345,9 @@ input[type='range'].archive-range:hover::-webkit-slider-thumb {
   .animate-ambient-breath,
   .animate-dreamy-float,
   .animate-marquee,
-  .animate-scan-sweep {
+  .animate-scan-sweep,
+  .animate-warning-shake,
+  .animate-soft-beacon {
     animation: none !important;
   }
 

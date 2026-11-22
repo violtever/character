@@ -55,7 +55,30 @@ import {
   toggleForumLike,
 } from './services/forumService';
 import { subscribeTracks } from './services/musicService';
+import {
+  DEFAULT_FORUM_RULES,
+  acceptForumRules,
+  hasGuestAcceptedRulesVersion,
+  saveGuestAcceptedRulesVersion,
+  subscribeAdminAuditLogs,
+  subscribeAllRestrictionsAdmin,
+  subscribeAllViolationsAdmin,
+  subscribeForumRulesConfig,
+  subscribeOwnRestriction,
+  subscribeOwnViolations,
+  subscribeUserRulesAcceptance,
+  submitViolationAppeal,
+} from './services/moderationService';
+import {
+  deleteUserNotification,
+  markAllNotificationsRead,
+  markNotificationRead,
+  notifyPostLike,
+  subscribeImportantAnnouncements,
+  subscribeUserNotifications,
+} from './services/notificationService';
 import type {
+  AdminAuditLog,
   AppSection,
   ArchiveStage,
   AuthModalMode,
@@ -64,13 +87,19 @@ import type {
   ForumComment,
   ForumLike,
   ForumPost,
+  ForumRulesAcceptance,
+  ForumRulesConfig,
+  ForumViolation,
   GalleryItem,
+  ImportantAnnouncement,
   MusicTrack,
   PendingGuestAction,
   PublicUserProfile,
   SortOption,
   ThemeMode,
+  UserNotification,
   UserProfile,
+  UserRestriction,
 } from './types/archive';
 import { musicPlayer, type MusicSnapshot } from './utils/musicEngine';
 import { sfx } from './utils/sfxEngine';
@@ -80,10 +109,17 @@ import { BrandWordmark } from './components/BrandWordmark';
 import { CharacterCard } from './components/CharacterCard';
 import { CharacterDetailModal } from './components/CharacterDetailModal';
 import { DecorGallery } from './components/DecorGallery';
+import { ForumRulesGate } from './components/ForumRulesGate';
 import { ForumSection } from './components/ForumSection';
+import { ImportantAnnouncementPopup } from './components/ImportantAnnouncementPopup';
 import { LoadingScreen } from './components/LoadingScreen';
 import { LoginPromptModal } from './components/LoginPromptModal';
+import {
+  ModerationWarningModal,
+  type ModerationWarningPayload,
+} from './components/ModerationWarningModal';
 import { MusicPlayer } from './components/MusicPlayer';
+import { NotificationCenter } from './components/NotificationCenter';
 import { ProfileSettingsView } from './components/ProfileSettingsView';
 import {
   FloatingDreamyStickers,
@@ -92,6 +128,7 @@ import {
 import { WelcomeScreen } from './components/WelcomeScreen';
 
 const THEME_STORAGE_KEY = 'xocyberluv_archive_theme';
+const DISMISSED_ANNOUNCEMENTS_KEY = 'xocyberluv_dismissed_announcements';
 
 function loadInitialTheme(): ThemeMode {
   try {
@@ -101,6 +138,17 @@ function loadInitialTheme(): ThemeMode {
     // Ignore storage errors
   }
   return 'light';
+}
+
+function loadDismissedAnnouncementIds(): string[] {
+  try {
+    const raw = window.sessionStorage.getItem(DISMISSED_ANNOUNCEMENTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
 }
 
 export default function App() {
@@ -148,7 +196,44 @@ export default function App() {
   const [selectedForumPostId, setSelectedForumPostId] = useState<string | null>(
     null
   );
+  const [highlightCommentId, setHighlightCommentId] = useState<string | null>(
+    null
+  );
   const [forumComposerOpen, setForumComposerOpen] = useState(false);
+
+  // Forum Rules Gate, Moderation, Notifications & Announcements State
+  const [rulesConfig, setRulesConfig] =
+    useState<ForumRulesConfig>(DEFAULT_FORUM_RULES);
+  const [userRulesAcceptance, setUserRulesAcceptance] =
+    useState<ForumRulesAcceptance | null>(null);
+  const [rulesAcceptanceLoaded, setRulesAcceptanceLoaded] = useState(false);
+  const [guestAcceptedVersion, setGuestAcceptedVersion] = useState<number>(() =>
+    hasGuestAcceptedRulesVersion(1) ? 1 : 0
+  );
+  const [savingRulesAcceptance, setSavingRulesAcceptance] = useState(false);
+
+  const [ownRestriction, setOwnRestriction] = useState<UserRestriction | null>(
+    null
+  );
+  const [ownViolations, setOwnViolations] = useState<ForumViolation[]>([]);
+  const [notifications, setNotifications] = useState<UserNotification[]>([]);
+  const [importantAnnouncements, setImportantAnnouncements] = useState<
+    ImportantAnnouncement[]
+  >([]);
+  const [dismissedAnnouncementIds, setDismissedAnnouncementIds] = useState<
+    string[]
+  >(loadDismissedAnnouncementIds);
+
+  // Admin-only Moderation Collections
+  const [allViolations, setAllViolations] = useState<ForumViolation[]>([]);
+  const [allRestrictions, setAllRestrictions] = useState<
+    Record<string, UserRestriction>
+  >({});
+  const [adminAuditLogs, setAdminAuditLogs] = useState<AdminAuditLog[]>([]);
+
+  // Active Content Moderation Warning Modal (rendered above Forum composer/comments so draft stays intact)
+  const [activeWarning, setActiveWarning] =
+    useState<ModerationWarningPayload | null>(null);
 
   const isDbEmpty = isCharsDbEmpty || isCatsDbEmpty || isGalleryDbEmpty;
   const isAdmin = Boolean(
@@ -294,6 +379,17 @@ export default function App() {
     const unsubForumLikes = subscribeForumLikes((likes) => {
       setForumLikes(likes);
     });
+    const unsubRulesConfig = subscribeForumRulesConfig((cfg) => {
+      setRulesConfig(cfg);
+      if (hasGuestAcceptedRulesVersion(cfg.version)) {
+        setGuestAcceptedVersion(cfg.version);
+      }
+    });
+    const unsubImportantAnnouncements = subscribeImportantAnnouncements(
+      (items) => {
+        setImportantAnnouncements(items);
+      }
+    );
     return () => {
       unsubChars();
       unsubCats();
@@ -303,7 +399,22 @@ export default function App() {
       unsubForumPosts();
       unsubForumComments();
       unsubForumLikes();
+      unsubRulesConfig();
+      unsubImportantAnnouncements();
     };
+  }, []);
+
+  // Prevent bypassing Forum Rules Gate when visiting #forum directly via URL hash
+  useEffect(() => {
+    const syncFromHash = () => {
+      if (window.location.hash === '#forum') {
+        setStage('main');
+        setActiveSection('forum');
+      }
+    };
+    syncFromHash();
+    window.addEventListener('hashchange', syncFromHash);
+    return () => window.removeEventListener('hashchange', syncFromHash);
   }, []);
 
   // Live-sync Admin-managed tracks into the website's Music Player playlist
@@ -331,14 +442,75 @@ export default function App() {
     }
   }, [stage, tracks]);
 
-  // Subscribe to member personal favorites when verified
+  // Subscribe to member personal favorites, notifications, rules acceptance & moderation standing
   useEffect(() => {
-    if (!currentUser || !currentUser.emailVerified) {
+    if (!currentUser) {
       setFavoriteIds([]);
+      setUserRulesAcceptance(null);
+      setRulesAcceptanceLoaded(true);
+      setOwnRestriction(null);
+      setOwnViolations([]);
+      setNotifications([]);
       return;
     }
-    return subscribeUserFavorites(currentUser.uid, setFavoriteIds);
+
+    setRulesAcceptanceLoaded(false);
+    const unsubAccept = subscribeUserRulesAcceptance(
+      currentUser.uid,
+      (acc) => {
+        setUserRulesAcceptance(acc);
+        setRulesAcceptanceLoaded(true);
+      }
+    );
+    const unsubRestriction = subscribeOwnRestriction(
+      currentUser.uid,
+      setOwnRestriction
+    );
+    const unsubViolations = subscribeOwnViolations(
+      currentUser.uid,
+      setOwnViolations
+    );
+
+    let unsubFavs: (() => void) | undefined;
+    let unsubNotifs: (() => void) | undefined;
+    if (currentUser.emailVerified) {
+      unsubFavs = subscribeUserFavorites(currentUser.uid, setFavoriteIds);
+      unsubNotifs = subscribeUserNotifications(
+        currentUser.uid,
+        setNotifications
+      );
+    } else {
+      setFavoriteIds([]);
+      setNotifications([]);
+    }
+
+    return () => {
+      unsubAccept();
+      unsubRestriction();
+      unsubViolations();
+      unsubFavs?.();
+      unsubNotifs?.();
+    };
   }, [currentUser]);
+
+  // Admin-only subscriptions for Moderation Center & Immutable Audit Logs
+  useEffect(() => {
+    if (!isAdmin) {
+      setAllViolations([]);
+      setAllRestrictions({});
+      setAdminAuditLogs([]);
+      return;
+    }
+    const unsubAllViolations = subscribeAllViolationsAdmin(setAllViolations);
+    const unsubAllRestrictions =
+      subscribeAllRestrictionsAdmin(setAllRestrictions);
+    const unsubAuditLogs = subscribeAdminAuditLogs(setAdminAuditLogs);
+    return () => {
+      unsubAllViolations();
+      unsubAllRestrictions();
+      unsubAuditLogs();
+    };
+  }, [isAdmin]);
 
   // Close account dropdown on outside click or Escape
   useEffect(() => {
@@ -422,11 +594,17 @@ export default function App() {
       );
       try {
         await toggleForumLike(postId, user.uid, alreadyLiked);
+        if (!alreadyLiked) {
+          const targetPost = forumPosts.find((p) => p.id === postId);
+          if (targetPost) {
+            void notifyPostLike({ post: targetPost, actor: user });
+          }
+        }
       } catch {
         showToast('Không thể cập nhật lượt thích lúc này. Vui lòng thử lại.');
       }
     },
-    [forumLikes, showToast]
+    [forumLikes, forumPosts, showToast]
   );
 
   // Resume pending Guest action automatically right after login without losing UI state
@@ -507,17 +685,126 @@ export default function App() {
         previousSectionRef.current = section;
       }
       setActiveSection(section);
-      if (section === 'archive' && anchorId) {
+      try {
+        if (section === 'forum') {
+          window.history.replaceState(null, '', '#forum');
+        } else if (window.location.hash === '#forum') {
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }
+      } catch {
+        // Ignore history restrictions in sandboxed iframe
+      }
+      if ((section === 'archive' || section === 'profile') && anchorId) {
         window.setTimeout(() => {
           document
             .getElementById(anchorId)
             ?.scrollIntoView({ behavior: 'smooth' });
-        }, 60);
+        }, 80);
       } else {
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
     },
     []
+  );
+
+  const handleAcceptForumRules = useCallback(async () => {
+    setSavingRulesAcceptance(true);
+    try {
+      if (currentUser) {
+        await acceptForumRules(currentUser, rulesConfig.version);
+        setUserRulesAcceptance({
+          userId: currentUser.uid,
+          acceptedVersion: rulesConfig.version,
+          acceptedAt: Date.now(),
+        });
+      } else {
+        saveGuestAcceptedRulesVersion(rulesConfig.version);
+        setGuestAcceptedVersion(rulesConfig.version);
+      }
+      sfx.play('welcomeClick');
+      showToast('Cảm ơn bạn đã đồng ý nội quy! Chào mừng đến với Diễn đàn.');
+    } catch (err) {
+      showToast(
+        err instanceof Error
+          ? err.message
+          : 'Không thể lưu xác nhận nội quy lúc này. Vui lòng thử lại.'
+      );
+    } finally {
+      setSavingRulesAcceptance(false);
+    }
+  }, [currentUser, rulesConfig.version, showToast]);
+
+  const handleDismissAnnouncement = useCallback((announcementId: string) => {
+    setDismissedAnnouncementIds((prev) => {
+      if (prev.includes(announcementId)) return prev;
+      const next = [...prev, announcementId];
+      try {
+        window.sessionStorage.setItem(
+          DISMISSED_ANNOUNCEMENTS_KEY,
+          JSON.stringify(next)
+        );
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+  }, []);
+
+  const handleOpenImportantAnnouncementPost = useCallback(
+    (postId: string, announcementId?: string) => {
+      if (announcementId) {
+        handleDismissAnnouncement(announcementId);
+      }
+      setAdminView({ open: false, tab: 'overview', editingChar: null });
+      setHighlightCommentId(null);
+      setSelectedForumPostId(postId);
+      handleNavigateSection('forum');
+    },
+    [handleDismissAnnouncement, handleNavigateSection]
+  );
+
+  const handleSelectNotification = useCallback(
+    (item: UserNotification) => {
+      if (!item.isRead) {
+        void markNotificationRead(item.id, true);
+      }
+      if (item.type === 'important_post' || item.type === 'interaction') {
+        setAdminView({ open: false, tab: 'overview', editingChar: null });
+        if (item.postId) {
+          setSelectedForumPostId(item.postId);
+        }
+        setHighlightCommentId(item.commentId || null);
+        handleNavigateSection('forum');
+        return;
+      }
+      if (item.type === 'warning') {
+        setAdminView({ open: false, tab: 'overview', editingChar: null });
+        handleNavigateSection('profile', 'profile-account-standing');
+        return;
+      }
+      if (item.type === 'system' && isAdmin) {
+        setStage('main');
+        setAdminView({ open: true, tab: 'moderation', editingChar: null });
+        window.scrollTo({ top: 0 });
+        return;
+      }
+      handleNavigateSection('profile');
+    },
+    [handleNavigateSection, isAdmin]
+  );
+
+  const handleSubmitWarningAppeal = useCallback(
+    async (violationId: string, appealReason: string) => {
+      if (!currentUser) return;
+      await submitViolationAppeal({
+        violationId,
+        user: currentUser,
+        appealReason,
+        publicProfiles,
+      });
+      showToast('Đã gửi yêu cầu xem xét lại đến Quản trị viên!');
+    },
+    [currentUser, publicProfiles, showToast]
   );
 
   const handleToggleTheme = useCallback(() => {
@@ -787,6 +1074,43 @@ export default function App() {
   const activeQuote = PERSONAL_QUOTES[quoteIndex % PERSONAL_QUOTES.length];
   const userInitial = (currentUser?.displayName || 'U').charAt(0).toUpperCase();
 
+  // Compute Forum Rules Gate requirement (cannot be bypassed by direct URL)
+  const needsForumRulesAcceptance = useMemo(() => {
+    if (currentUser) {
+      if (!rulesAcceptanceLoaded) return false;
+      return (
+        !userRulesAcceptance ||
+        userRulesAcceptance.acceptedVersion < rulesConfig.version
+      );
+    }
+    return guestAcceptedVersion < rulesConfig.version;
+  }, [
+    currentUser,
+    rulesAcceptanceLoaded,
+    userRulesAcceptance,
+    rulesConfig.version,
+    guestAcceptedVersion,
+  ]);
+
+  const isUpdatedForumRulesVersion = Boolean(
+    currentUser &&
+      userRulesAcceptance &&
+      userRulesAcceptance.acceptedVersion > 0 &&
+      userRulesAcceptance.acceptedVersion < rulesConfig.version
+  );
+
+  // Pick the newest active Important Admin Pinned Post announcement for bottom-left popup
+  const activePopupAnnouncement = useMemo(() => {
+    return (
+      importantAnnouncements.find(
+        (item) =>
+          item.active &&
+          !dismissedAnnouncementIds.includes(item.id) &&
+          (!currentUser || item.authorId !== currentUser.uid)
+      ) ?? null
+    );
+  }, [importantAnnouncements, dismissedAnnouncementIds, currentUser]);
+
   return (
     <div className="theme-surface relative min-h-screen bg-[var(--bg-canvas)] text-[var(--ink-primary)]">
       {/* Subtle analog grain overlay across entire site */}
@@ -834,6 +1158,12 @@ export default function App() {
               categories={categories}
               galleryItems={galleryItems}
               tracks={tracks}
+              violations={allViolations}
+              restrictions={allRestrictions}
+              auditLogs={adminAuditLogs}
+              forumPosts={forumPosts}
+              publicProfiles={publicProfiles}
+              rulesConfig={rulesConfig}
               isDbEmpty={isDbEmpty}
               initialTab={adminView.tab}
               editingCharacter={adminView.editingChar}
@@ -842,6 +1172,12 @@ export default function App() {
               }
               onInspectCharacter={(char) => {
                 setSelectedCharacterId(char.id);
+              }}
+              onInspectForumPost={(postId) => {
+                setAdminView({ open: false, tab: 'overview', editingChar: null });
+                setHighlightCommentId(null);
+                setSelectedForumPostId(postId);
+                handleNavigateSection('forum');
               }}
               onNotify={showToast}
             />
@@ -1002,6 +1338,23 @@ export default function App() {
                     </>
                   ) : (
                     <>
+                      {currentUser.emailVerified && (
+                        <NotificationCenter
+                          theme={theme}
+                          notifications={notifications}
+                          onSelectNotification={handleSelectNotification}
+                          onMarkRead={(id, isRead) =>
+                            void markNotificationRead(id, isRead)
+                          }
+                          onMarkAllRead={() =>
+                            void markAllNotificationsRead(notifications)
+                          }
+                          onDeleteNotification={(id) =>
+                            void deleteUserNotification(id)
+                          }
+                        />
+                      )}
+
                       {isAdmin && (
                         <button
                           type="button"
@@ -1169,27 +1522,58 @@ export default function App() {
                 SECTION ROUTER: FORUM | PROFILE | LIBRARY ARCHIVE
                =============================================================== */}
             {activeSection === 'forum' ? (
-              <ForumSection
-                theme={theme}
-                currentUser={currentUser}
-                isAdmin={isAdmin}
-                posts={forumPosts}
-                comments={forumComments}
-                likes={forumLikes}
-                publicProfiles={publicProfiles}
-                loading={forumLoading}
-                selectedPostId={selectedForumPostId}
-                composerOpen={forumComposerOpen}
-                onSelectPost={setSelectedForumPostId}
-                onComposerOpenChange={setForumComposerOpen}
-                onToggleLike={handleToggleForumLike}
-                onRequireLogin={handleRequireForumLogin}
-                onNotify={showToast}
-              />
+              currentUser && !rulesAcceptanceLoaded ? (
+                <div className="relative z-10 flex flex-1 flex-col items-center justify-center py-24 text-center">
+                  <div className="h-7 w-7 animate-spin rounded-full border-2 border-[var(--border-strong)] border-t-[var(--accent-primary)]" />
+                  <p className="mt-3 text-xs text-[var(--ink-muted)]">
+                    Đang kiểm tra trạng thái nội quy diễn đàn...
+                  </p>
+                </div>
+              ) : needsForumRulesAcceptance ? (
+                <ForumRulesGate
+                  theme={theme}
+                  config={rulesConfig}
+                  isUpdatedVersion={isUpdatedForumRulesVersion}
+                  saving={savingRulesAcceptance}
+                  onAccept={() => void handleAcceptForumRules()}
+                  onBackToArchive={() => handleNavigateSection('archive')}
+                />
+              ) : (
+                <ForumSection
+                  theme={theme}
+                  currentUser={currentUser}
+                  isAdmin={isAdmin}
+                  posts={forumPosts}
+                  comments={forumComments}
+                  likes={forumLikes}
+                  publicProfiles={publicProfiles}
+                  ownRestriction={ownRestriction}
+                  ownViolations={ownViolations}
+                  loading={forumLoading}
+                  selectedPostId={selectedForumPostId}
+                  highlightCommentId={highlightCommentId}
+                  composerOpen={forumComposerOpen}
+                  onSelectPost={(postId) => {
+                    setSelectedForumPostId(postId);
+                    if (!postId) setHighlightCommentId(null);
+                  }}
+                  onComposerOpenChange={setForumComposerOpen}
+                  onToggleLike={handleToggleForumLike}
+                  onRequireLogin={handleRequireForumLogin}
+                  onOpenProfileStatus={() =>
+                    handleNavigateSection('profile', 'profile-account-standing')
+                  }
+                  onTriggerWarning={(warning) => setActiveWarning(warning)}
+                  onNotify={showToast}
+                />
+              )
             ) : activeSection === 'profile' && currentUser ? (
               <ProfileSettingsView
                 theme={theme}
                 currentUser={currentUser}
+                ownRestriction={ownRestriction}
+                ownViolations={ownViolations}
+                publicProfiles={publicProfiles}
                 onProfileUpdated={(updated) => setCurrentUser(updated)}
                 onBack={() =>
                   handleNavigateSection(previousSectionRef.current || 'archive')
@@ -1680,23 +2064,59 @@ export default function App() {
       {/* Persistent Background Music Player (always accessible once inside main archive) */}
       {stage === 'main' && <MusicPlayer snapshot={musicSnapshot} />}
 
-      {/* Subtle Back-to-Top Floating Button */}
+      {/* Floating Important Admin Pinned Post Popup (bottom-left, non-intrusive) */}
       <AnimatePresence>
-        {stage === 'main' && !adminView.open && showBackToTop && (
-          <motion.button
-            type="button"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            onClick={() => {
-              sfx.play('filterSelect');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            aria-label="Cuộn lên đầu trang"
-            className="theme-control fixed bottom-4 left-4 z-30 flex h-10 w-10 items-center justify-center border border-[var(--border-strong)] bg-[var(--bg-surface)]/92 text-[var(--ink-secondary)] shadow-md backdrop-blur-md hover:border-[var(--accent-primary)] hover:text-[var(--ink-primary)] sm:bottom-6 sm:left-6"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </motion.button>
+        {stage === 'main' &&
+          (!adminView.open || !isAdmin) &&
+          activePopupAnnouncement && (
+            <ImportantAnnouncementPopup
+              key={activePopupAnnouncement.id}
+              theme={theme}
+              announcement={activePopupAnnouncement}
+              onOpenPost={(postId) =>
+                handleOpenImportantAnnouncementPost(
+                  postId,
+                  activePopupAnnouncement.id
+                )
+              }
+              onDismiss={handleDismissAnnouncement}
+            />
+          )}
+      </AnimatePresence>
+
+      {/* Subtle Back-to-Top Floating Button (auto-hides when Important Popup occupies bottom-left) */}
+      <AnimatePresence>
+        {stage === 'main' &&
+          !adminView.open &&
+          showBackToTop &&
+          !activePopupAnnouncement && (
+            <motion.button
+              type="button"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 12 }}
+              onClick={() => {
+                sfx.play('filterSelect');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              aria-label="Cuộn lên đầu trang"
+              className="theme-control fixed bottom-4 left-4 z-30 flex h-10 w-10 items-center justify-center border border-[var(--border-strong)] bg-[var(--bg-surface)]/92 text-[var(--ink-secondary)] shadow-md backdrop-blur-md hover:border-[var(--accent-primary)] hover:text-[var(--ink-primary)] sm:bottom-6 sm:left-6"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </motion.button>
+          )}
+      </AnimatePresence>
+
+      {/* Cute-Yet-Serious Content Moderation Warning Modal (above Forum composer/detail) */}
+      <AnimatePresence>
+        {activeWarning && (
+          <ModerationWarningModal
+            theme={theme}
+            warning={activeWarning}
+            onEditContent={() => setActiveWarning(null)}
+            onClose={() => setActiveWarning(null)}
+            onSubmitAppeal={handleSubmitWarningAppeal}
+          />
         )}
       </AnimatePresence>
 

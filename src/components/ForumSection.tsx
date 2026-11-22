@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertTriangle,
@@ -6,12 +6,14 @@ import {
   Heart,
   ImagePlus,
   Loader2,
+  Megaphone,
   MessageSquare,
   Pencil,
   Pin,
   Plus,
   Search,
   Shield,
+  ShieldAlert,
   SlidersHorizontal,
   Sparkles,
   Trash2,
@@ -24,14 +26,27 @@ import {
   updateForumPostModerationAdmin,
   validateImageUploadFile,
 } from '../services/forumService';
+import {
+  formatDeadlineVi,
+  getActiveRestrictionState,
+  logAdminAuditAction,
+  recordContentViolation,
+} from '../services/moderationService';
+import {
+  deactivateImportantPostAnnouncementAdmin,
+  publishImportantPostAnnouncementAdmin,
+} from '../services/notificationService';
 import type {
   ForumComment,
   ForumLike,
   ForumPost,
+  ForumViolation,
   PublicUserProfile,
   ThemeMode,
   UserProfile,
+  UserRestriction,
 } from '../types/archive';
+import { analyzeContentForModeration } from '../utils/contentModeration';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sfx } from '../utils/sfxEngine';
 import {
@@ -39,6 +54,7 @@ import {
   ForumPostDetailModal,
   resolveLiveAuthor,
 } from './ForumPostDetailModal';
+import type { ModerationWarningPayload } from './ModerationWarningModal';
 
 type ForumFilterOption =
   | 'newest'
@@ -56,8 +72,11 @@ interface ForumSectionProps {
   comments: ForumComment[];
   likes: ForumLike[];
   publicProfiles: Record<string, PublicUserProfile>;
+  ownRestriction: UserRestriction | null;
+  ownViolations: ForumViolation[];
   loading: boolean;
   selectedPostId: string | null;
+  highlightCommentId?: string | null;
   composerOpen: boolean;
   onSelectPost: (postId: string | null) => void;
   onComposerOpenChange: (open: boolean) => void;
@@ -66,10 +85,14 @@ interface ForumSectionProps {
     type: 'forum_like' | 'forum_compose' | 'forum_comment';
     postId?: string;
   }) => void;
+  onOpenProfileStatus: () => void;
+  onTriggerWarning: (warning: ModerationWarningPayload) => void;
   onNotify: (msg: string) => void;
 }
 
 function sortPinnedPosts(a: ForumPost, b: ForumPost): number {
+  const impDiff = Number(Boolean(b.isImportant)) - Number(Boolean(a.isImportant));
+  if (impDiff !== 0) return impDiff;
   const aHasOrder = a.pinOrder > 0;
   const bHasOrder = b.pinOrder > 0;
   if (aHasOrder && bHasOrder && a.pinOrder !== b.pinOrder) {
@@ -89,13 +112,18 @@ export function ForumSection({
   comments,
   likes,
   publicProfiles,
+  ownRestriction,
+  ownViolations,
   loading,
   selectedPostId,
+  highlightCommentId = null,
   composerOpen,
   onSelectPost,
   onComposerOpenChange,
   onToggleLike,
   onRequireLogin,
+  onOpenProfileStatus,
+  onTriggerWarning,
   onNotify,
 }: ForumSectionProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -108,17 +136,26 @@ export function ForumSection({
   const [draftContent, setDraftContent] = useState('');
   const [draftImage, setDraftImage] = useState('');
   const [draftPinOnCreate, setDraftPinOnCreate] = useState(false);
+  const [draftImportantOnCreate, setDraftImportantOnCreate] = useState(false);
   const [draftPinOrder, setDraftPinOrder] = useState(0);
   const [draftFeatureOnCreate, setDraftFeatureOnCreate] = useState(false);
   const [processingImage, setProcessingImage] = useState(false);
   const [savingPost, setSavingPost] = useState(false);
   const [composerError, setComposerError] = useState('');
 
+  // Draft-session deduplication key so retrying the same blocked post draft never double-counts strikes
+  const postDraftKeyRef = useRef<string>('');
+
   // Confirm delete post modal
   const [pendingDeletePost, setPendingDeletePost] = useState<ForumPost | null>(
     null
   );
   const [deletingPost, setDeletingPost] = useState(false);
+
+  const activeRestriction = useMemo(
+    () => getActiveRestrictionState(ownRestriction),
+    [ownRestriction]
+  );
 
   // Pin priority inline editor for Admin
   const [pinOrderModalPost, setPinOrderModalPost] = useState<ForumPost | null>(
@@ -233,12 +270,20 @@ export function ForumSection({
       onNotify('Vui lòng xác minh địa chỉ email trước khi đăng bài lên diễn đàn.');
       return;
     }
+    if (!isAdmin && activeRestriction.isPostRestricted) {
+      onNotify(
+        `${activeRestriction.labelVi} đến ${formatDeadlineVi(activeRestriction.activeUntil)}. Bạn chưa thể đăng bài mới lúc này.`
+      );
+      return;
+    }
     sfx.play('openCharacter');
+    postDraftKeyRef.current = '';
     setEditingPost(null);
     setDraftTitle('');
     setDraftContent('');
     setDraftImage('');
-    setDraftPinOnCreate(false); // Never auto-pin Admin posts unless explicitly requested
+    setDraftPinOnCreate(false);
+    setDraftImportantOnCreate(false);
     setDraftPinOrder(0);
     setDraftFeatureOnCreate(false);
     setComposerError('');
@@ -247,11 +292,13 @@ export function ForumSection({
 
   const openEditComposer = (post: ForumPost) => {
     sfx.play('filterSelect');
+    postDraftKeyRef.current = '';
     setEditingPost(post);
     setDraftTitle(post.title);
     setDraftContent(post.content);
     setDraftImage(post.image || '');
     setDraftPinOnCreate(post.isPinned);
+    setDraftImportantOnCreate(Boolean(post.isImportant));
     setDraftPinOrder(post.pinOrder || 0);
     setDraftFeatureOnCreate(post.isFeatured);
     setComposerError('');
@@ -299,8 +346,49 @@ export function ForumSection({
       return;
     }
 
+    if (!isAdmin) {
+      const latestRestriction = getActiveRestrictionState(ownRestriction);
+      if (latestRestriction.isPostRestricted) {
+        setComposerError(
+          `${latestRestriction.labelVi} đến ${formatDeadlineVi(latestRestriction.activeUntil)}.`
+        );
+        return;
+      }
+    }
+
     setSavingPost(true);
     try {
+      // Context-aware moderation check BEFORE saving to Firestore (keep draft intact if flagged!)
+      if (!isAdmin) {
+        const combinedText = `${draftTitle.trim()}\n${draftContent.trim()}`;
+        const check = analyzeContentForModeration(combinedText);
+        if (check.flagged) {
+          if (!postDraftKeyRef.current) {
+            postDraftKeyRef.current = `post_${editingPost?.id || 'new'}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+          }
+          const recorded = await recordContentViolation({
+            user: currentUser,
+            contentType: 'post',
+            incidentKey: postDraftKeyRef.current,
+            flaggedText: combinedText,
+            result: check,
+            existingViolations: ownViolations,
+            currentRestriction: ownRestriction,
+            publicProfiles,
+          });
+          onTriggerWarning({
+            violationId: recorded.violationId,
+            strikeNumber: recorded.strikeNumber,
+            severity: check.severity,
+            reason: check.reason,
+            matchedExcerpt: check.matchedExcerpt,
+            alreadyRecordedForDraft: recorded.alreadyRecordedForDraft,
+            restrictedUntil: recorded.restrictedUntil,
+          });
+          return;
+        }
+      }
+
       if (editingPost) {
         await updateForumPostContent({
           postId: editingPost.id,
@@ -310,34 +398,79 @@ export function ForumSection({
           image: draftImage,
         });
         if (isAdmin) {
+          const nextPinned = draftPinOnCreate || draftImportantOnCreate;
           const modChanged =
-            editingPost.isPinned !== draftPinOnCreate ||
+            editingPost.isPinned !== nextPinned ||
             editingPost.pinOrder !== draftPinOrder ||
-            editingPost.isFeatured !== draftFeatureOnCreate;
+            editingPost.isFeatured !== draftFeatureOnCreate ||
+            Boolean(editingPost.isImportant) !== draftImportantOnCreate;
           if (modChanged) {
             await updateForumPostModerationAdmin({
               postId: editingPost.id,
-              isPinned: draftPinOnCreate,
-              pinOrder: draftPinOnCreate ? draftPinOrder : 0,
+              isPinned: nextPinned,
+              pinOrder: nextPinned ? draftPinOrder : 0,
               isFeatured: draftFeatureOnCreate,
+              isImportant: draftImportantOnCreate,
             });
+          }
+          if (draftImportantOnCreate && !editingPost.isImportant) {
+            await publishImportantPostAnnouncementAdmin({
+              postId: editingPost.id,
+              title: draftTitle,
+              content: draftContent,
+              admin: currentUser,
+              publicProfiles,
+            });
+            await logAdminAuditAction({
+              admin: currentUser,
+              action: 'pin_important_post',
+              targetEntityId: editingPost.id,
+              summary: `Ghim bài viết quan trọng và gửi thông báo: “${draftTitle.trim().slice(0, 80)}”.`,
+            });
+          } else if (!draftImportantOnCreate && editingPost.isImportant) {
+            await deactivateImportantPostAnnouncementAdmin(editingPost.id);
           }
         }
         sfx.play('welcomeClick');
         onNotify('Đã cập nhật bài viết thành công!');
       } else {
-        await createForumPost({
+        const shouldImportant = isAdmin && draftImportantOnCreate;
+        const shouldPin = isAdmin && (draftPinOnCreate || shouldImportant);
+        const createdId = await createForumPost({
           user: currentUser,
           title: draftTitle,
           content: draftContent,
           image: draftImage,
-          pinOnCreate: isAdmin ? draftPinOnCreate : false,
-          pinOrder: isAdmin && draftPinOnCreate ? draftPinOrder : 0,
+          pinOnCreate: shouldPin,
+          pinOrder: shouldPin ? draftPinOrder : 0,
           featureOnCreate: isAdmin ? draftFeatureOnCreate : false,
+          importantOnCreate: shouldImportant,
         });
+
+        if (shouldImportant) {
+          await publishImportantPostAnnouncementAdmin({
+            postId: createdId,
+            title: draftTitle,
+            content: draftContent,
+            admin: currentUser,
+            publicProfiles,
+          });
+          await logAdminAuditAction({
+            admin: currentUser,
+            action: 'pin_important_post',
+            targetEntityId: createdId,
+            summary: `Đăng và ghim bài viết quan trọng: “${draftTitle.trim().slice(0, 80)}”.`,
+          });
+        }
+
         sfx.play('welcomeClick');
-        onNotify('Đã đăng bài viết mới lên diễn đàn!');
+        onNotify(
+          shouldImportant
+            ? 'Đã đăng bài viết quan trọng và gửi thông báo đến thành viên!'
+            : 'Đã đăng bài viết mới lên diễn đàn!'
+        );
       }
+      postDraftKeyRef.current = '';
       onComposerOpenChange(false);
       setEditingPost(null);
     } catch (err) {
@@ -358,7 +491,11 @@ export function ForumSection({
       await updateForumPostModerationAdmin({
         postId: post.id,
         isPinned: nextPinned,
+        ...(nextPinned ? {} : { isImportant: false }),
       });
+      if (!nextPinned && post.isImportant) {
+        await deactivateImportantPostAnnouncementAdmin(post.id);
+      }
       sfx.play('filterSelect');
       onNotify(
         nextPinned
@@ -368,6 +505,53 @@ export function ForumSection({
     } catch (err) {
       onNotify(
         err instanceof Error ? err.message : 'Không thể thay đổi trạng thái ghim.'
+      );
+    }
+  };
+
+  const handleToggleImportant = async (post: ForumPost) => {
+    if (!isAdmin || !currentUser) return;
+    try {
+      const nextImportant = !post.isImportant;
+      await updateForumPostModerationAdmin({
+        postId: post.id,
+        isImportant: nextImportant,
+        ...(nextImportant ? { isPinned: true } : {}),
+      });
+      if (nextImportant) {
+        await publishImportantPostAnnouncementAdmin({
+          postId: post.id,
+          title: post.title,
+          content: post.content,
+          admin: currentUser,
+          publicProfiles,
+        });
+        await logAdminAuditAction({
+          admin: currentUser,
+          action: 'pin_important_post',
+          targetEntityId: post.id,
+          summary: `Bật Ghim quan trọng & phát thông báo cho bài “${post.title.slice(0, 80)}”.`,
+        });
+      } else {
+        await deactivateImportantPostAnnouncementAdmin(post.id);
+        await logAdminAuditAction({
+          admin: currentUser,
+          action: 'unpin_important_post',
+          targetEntityId: post.id,
+          summary: `Tắt Ghim quan trọng cho bài “${post.title.slice(0, 80)}”.`,
+        });
+      }
+      sfx.play('welcomeClick');
+      onNotify(
+        nextImportant
+          ? `Đã bật Ghim quan trọng và gửi thông báo cho "${post.title}".`
+          : `Đã tắt Ghim quan trọng của "${post.title}".`
+      );
+    } catch (err) {
+      onNotify(
+        err instanceof Error
+          ? err.message
+          : 'Không thể cập nhật trạng thái Ghim quan trọng.'
       );
     }
   };
@@ -418,6 +602,9 @@ export function ForumSection({
     setDeletingPost(true);
     try {
       const target = pendingDeletePost;
+      if (isAdmin && target.isImportant) {
+        await deactivateImportantPostAnnouncementAdmin(target.id);
+      }
       await deleteForumPost(target.id, currentUser);
       if (selectedPostId === target.id) {
         onSelectPost(null);
@@ -442,15 +629,21 @@ export function ForumSection({
     const commentCount = commentCountByPost[post.id] ?? 0;
     const isLiked = likedPostIds.has(post.id);
 
-    const cardAccentClass = post.isPinned
+    const cardAccentClass = post.isImportant
       ? theme === 'dark'
-        ? 'border-[var(--accent-primary)]/75 bg-gradient-to-br from-[var(--bg-surface)] via-[var(--bg-surface)] to-[var(--accent-soft)]/35 shadow-md'
-        : 'border-[var(--accent-primary)]/70 bg-gradient-to-br from-[var(--bg-surface)] via-[var(--bg-surface)] to-[var(--accent-soft)]/45 shadow-md'
-      : isAuthorAdmin
-        ? 'border-[var(--accent-primary)]/45 bg-[var(--bg-surface)] shadow-sm'
-        : post.isFeatured
-          ? 'border-amber-500/45 bg-[var(--bg-surface)]'
-          : 'border-[var(--border-hairline)] bg-[var(--bg-surface)]';
+        ? 'border-[#d4445d]/80 bg-gradient-to-br from-[#250f16] via-[#1c0c12] to-[#34121f] shadow-lg'
+        : 'border-[#2558d4]/80 bg-gradient-to-br from-[#eef5ff] via-[#f7faff] to-[#e2eeff] shadow-lg'
+      : post.isPinned
+        ? theme === 'dark'
+          ? 'border-[var(--accent-primary)]/70 bg-gradient-to-br from-[var(--bg-surface)] via-[var(--bg-surface)] to-[var(--accent-soft)]/35 shadow-md'
+          : 'border-[var(--accent-primary)]/65 bg-gradient-to-br from-[var(--bg-surface)] via-[var(--bg-surface)] to-[var(--accent-soft)]/45 shadow-md'
+        : isAuthorAdmin
+          ? theme === 'dark'
+            ? 'border-[#b52b44]/55 bg-[#1f0d13] shadow-sm'
+            : 'border-[#5c8ef0]/55 bg-[#f2f7ff] shadow-sm'
+          : post.isFeatured
+            ? 'border-amber-500/45 bg-[var(--bg-surface)]'
+            : 'border-[var(--border-hairline)] bg-[var(--bg-surface)]';
 
     return (
       <motion.article
@@ -458,18 +651,20 @@ export function ForumSection({
         layout
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`theme-card relative overflow-hidden border transition-all hover:border-[var(--accent-primary)]/80 ${cardAccentClass}`}
+        className={`theme-card relative overflow-hidden border transition-all hover:border-[var(--accent-primary)]/85 ${cardAccentClass}`}
       >
-        {/* Subtle top accent bar for Pinned / Admin / Featured posts */}
-        {(post.isPinned || isAuthorAdmin || post.isFeatured) && (
+        {/* Subtle top accent bar for Important / Pinned / Admin / Featured posts */}
+        {(post.isImportant || post.isPinned || isAuthorAdmin || post.isFeatured) && (
           <div
             aria-hidden="true"
             className={`h-1 w-full ${
-              post.isPinned
+              post.isImportant
                 ? 'bg-[var(--accent-primary)]'
-                : isAuthorAdmin
-                  ? 'bg-[var(--accent-primary)]/70'
-                  : 'bg-amber-500/70'
+                : post.isPinned
+                  ? 'bg-[var(--accent-primary)]/85'
+                  : isAuthorAdmin
+                    ? 'bg-[var(--accent-primary)]/65'
+                    : 'bg-amber-500/70'
             }`}
           />
         )}
@@ -479,10 +674,10 @@ export function ForumSection({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <div
-                className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border text-sm font-semibold ${
+                className={`flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-semibold ${
                   isAuthorAdmin
-                    ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)] text-[var(--accent-primary)]'
-                    : 'border-[var(--border-hairline)] bg-[var(--bg-elevated)] text-[var(--ink-primary)]'
+                    ? 'border-2 border-[var(--accent-primary)] bg-[var(--accent-soft)] text-[var(--accent-primary)] ring-2 ring-[var(--accent-primary)]/20'
+                    : 'border border-[var(--border-hairline)] bg-[var(--bg-elevated)] text-[var(--ink-primary)]'
                 }`}
               >
                 {author.photoURL ? (
@@ -505,7 +700,7 @@ export function ForumSection({
                   {isAuthorAdmin ? (
                     <span className="inline-flex items-center gap-1 rounded bg-[var(--accent-primary)] px-2 py-0.5 font-mono-archive text-[10px] font-bold tracking-wider text-[var(--accent-ink)] uppercase">
                       <Shield className="h-2.5 w-2.5" />
-                      ADMIN
+                      ✦ ADMIN
                     </span>
                   ) : (
                     <span className="font-mono-archive text-[11px] text-[var(--ink-muted)]">
@@ -520,9 +715,15 @@ export function ForumSection({
               </div>
             </div>
 
-            {/* Distinct Pin & Featured Badges (separated from Admin role label!) */}
+            {/* Distinct Important, Pin & Featured Badges (separated from Admin role label!) */}
             <div className="flex flex-wrap items-center gap-1.5">
-              {post.isPinned && (
+              {post.isImportant && (
+                <span className="inline-flex items-center gap-1 rounded border border-[var(--accent-primary)] bg-[var(--accent-primary)] px-2.5 py-1 text-[11px] font-semibold text-[var(--accent-ink)]">
+                  <Megaphone className="h-3 w-3" />
+                  <span>Ghim quan trọng</span>
+                </span>
+              )}
+              {post.isPinned && !post.isImportant && (
                 <span className="inline-flex items-center gap-1 rounded border border-[var(--accent-primary)]/60 bg-[var(--accent-soft)] px-2.5 py-1 text-[11px] font-semibold text-[var(--accent-primary)]">
                   <Pin className="h-3 w-3" />
                   <span>
@@ -615,6 +816,19 @@ export function ForumSection({
             <div className="flex flex-wrap items-center gap-1.5">
               {isAdmin && (
                 <>
+                  <button
+                    type="button"
+                    onClick={() => void handleToggleImportant(post)}
+                    className={`theme-control inline-flex h-8 items-center gap-1 border px-2.5 text-[11px] font-semibold ${
+                      post.isImportant
+                        ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-ink)]'
+                        : 'border-[var(--border-hairline)] text-[var(--ink-secondary)] hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]'
+                    }`}
+                  >
+                    <Megaphone className="h-3 w-3" />
+                    <span>{post.isImportant ? 'Tắt quan trọng' : 'Quan trọng'}</span>
+                  </button>
+
                   <button
                     type="button"
                     onClick={() => void handleTogglePin(post)}
@@ -719,6 +933,34 @@ export function ForumSection({
           <span>Tạo bài viết mới</span>
         </button>
       </div>
+
+      {/* Active Account Restriction Notice (for restricted non-admin users) */}
+      {currentUser &&
+        !isAdmin &&
+        (activeRestriction.isPostRestricted ||
+          activeRestriction.isCommentRestricted) && (
+          <div className="theme-card mt-5 flex flex-col justify-between gap-3 border border-rose-500/45 bg-rose-500/10 p-4 text-xs text-rose-700 dark:text-rose-200 sm:flex-row sm:items-center">
+            <div className="flex items-start gap-2.5">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
+              <div>
+                <p className="font-semibold">
+                  {activeRestriction.labelVi} đến{' '}
+                  {formatDeadlineVi(activeRestriction.activeUntil)}
+                </p>
+                {ownRestriction?.reason && (
+                  <p className="mt-0.5 opacity-90">{ownRestriction.reason}</p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onOpenProfileStatus}
+              className="theme-control h-8 shrink-0 border border-rose-500/40 bg-[var(--bg-surface)] px-3 text-[11px] font-semibold text-rose-600 hover:border-rose-500 dark:text-rose-300"
+            >
+              Xem lịch sử &amp; khiếu nại
+            </button>
+          </div>
+        )}
 
       {/* Search & Filter Bar */}
       <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -899,11 +1141,15 @@ export function ForumSection({
       <AnimatePresence>
         {selectedPost && (
           <ForumPostDetailModal
+            theme={theme}
             post={selectedPost}
             comments={comments}
             publicProfiles={publicProfiles}
             currentUser={currentUser}
             isAdmin={isAdmin}
+            ownRestriction={ownRestriction}
+            ownViolations={ownViolations}
+            highlightCommentId={highlightCommentId}
             likeCount={likeCountByPost[selectedPost.id] ?? 0}
             isLiked={likedPostIds.has(selectedPost.id)}
             onClose={() => onSelectPost(null)}
@@ -911,10 +1157,12 @@ export function ForumSection({
             onEditPost={openEditComposer}
             onRequestDeletePost={(p) => setPendingDeletePost(p)}
             onTogglePin={(p) => void handleTogglePin(p)}
+            onToggleImportant={(p) => void handleToggleImportant(p)}
             onToggleFeatured={(p) => void handleToggleFeatured(p)}
             onRequireLogin={(postId) =>
               onRequireLogin({ type: 'forum_comment', postId })
             }
+            onTriggerWarning={onTriggerWarning}
             onNotify={onNotify}
           />
         )}
@@ -1043,7 +1291,7 @@ export function ForumSection({
                 )}
               </div>
 
-              {/* Admin-only optional pin & feature toggles (unchecked by default!) */}
+              {/* Admin-only optional pin, important announcement & feature toggles */}
               {isAdmin && (
                 <div className="theme-control space-y-3 border border-[var(--accent-primary)]/35 bg-[var(--accent-soft)]/35 p-4">
                   <p className="font-mono-archive flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-[var(--accent-primary)] uppercase">
@@ -1051,12 +1299,33 @@ export function ForumSection({
                     <span>Tùy chọn Quản trị viên (không tự động ghim)</span>
                   </p>
 
+                  <label className="flex cursor-pointer items-start gap-2.5 text-xs text-[var(--ink-primary)]">
+                    <input
+                      type="checkbox"
+                      checked={draftImportantOnCreate}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setDraftImportantOnCreate(checked);
+                        if (checked) setDraftPinOnCreate(true);
+                      }}
+                      className="mt-0.5 h-4 w-4 accent-[var(--accent-primary)]"
+                    />
+                    <span>
+                      <strong className="text-[var(--accent-primary)]">
+                        Ghim quan trọng &amp; gửi thông báo
+                      </strong>{' '}
+                      (hiển thị popup góc trái dưới và gửi vào Trung tâm thông báo
+                      của thành viên)
+                    </span>
+                  </label>
+
                   <label className="flex cursor-pointer items-center gap-2.5 text-xs text-[var(--ink-primary)]">
                     <input
                       type="checkbox"
                       checked={draftPinOnCreate}
+                      disabled={draftImportantOnCreate}
                       onChange={(e) => setDraftPinOnCreate(e.target.checked)}
-                      className="h-4 w-4 accent-[var(--accent-primary)]"
+                      className="h-4 w-4 accent-[var(--accent-primary)] disabled:opacity-60"
                     />
                     <span>Ghim bài viết này lên đầu diễn đàn</span>
                   </label>

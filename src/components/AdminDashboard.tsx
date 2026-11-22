@@ -15,6 +15,7 @@ import {
   Plus,
   Search,
   Shield,
+  ShieldAlert,
   Trash2,
   UserCheck,
   Users,
@@ -33,15 +34,22 @@ import {
   setUserRoleAdmin,
 } from '../services/archiveService';
 import type {
+  AdminAuditLog,
   CategoryRecord,
   CharacterRecord,
+  ForumPost,
+  ForumRulesConfig,
+  ForumViolation,
   GalleryItem,
   MusicTrack,
+  PublicUserProfile,
   ThemeMode,
   UserProfile,
+  UserRestriction,
 } from '../types/archive';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sfx } from '../utils/sfxEngine';
+import { AdminModerationSection } from './AdminModerationSection';
 import { BrandWordmark } from './BrandWordmark';
 import { DriveBackupSection } from './DriveBackupSection';
 import { MusicManagerSection } from './MusicManagerSection';
@@ -52,6 +60,7 @@ export type AdminTab =
   | 'form'
   | 'categories'
   | 'music'
+  | 'moderation'
   | 'users'
   | 'drive';
 
@@ -62,11 +71,18 @@ interface AdminDashboardProps {
   categories: CategoryRecord[];
   galleryItems: GalleryItem[];
   tracks: MusicTrack[];
+  violations: ForumViolation[];
+  restrictions: Record<string, UserRestriction>;
+  auditLogs: AdminAuditLog[];
+  forumPosts: ForumPost[];
+  publicProfiles: Record<string, PublicUserProfile>;
+  rulesConfig: ForumRulesConfig;
   isDbEmpty: boolean;
   initialTab?: AdminTab;
   editingCharacter?: CharacterRecord | null;
   onBackToArchive: () => void;
   onInspectCharacter: (character: CharacterRecord) => void;
+  onInspectForumPost: (postId: string) => void;
   onNotify: (message: string) => void;
 }
 
@@ -77,16 +93,27 @@ export function AdminDashboard({
   categories,
   galleryItems,
   tracks,
+  violations,
+  restrictions,
+  auditLogs,
+  forumPosts,
+  publicProfiles,
+  rulesConfig,
   isDbEmpty,
   initialTab = 'overview',
   editingCharacter = null,
   onBackToArchive,
   onInspectCharacter,
+  onInspectForumPost,
   onNotify,
 }: AdminDashboardProps) {
   const [activeTab, setActiveTab] = useState<AdminTab>(
     editingCharacter ? 'form' : initialTab
   );
+
+  useEffect(() => {
+    setActiveTab(editingCharacter ? 'form' : initialTab);
+  }, [initialTab, editingCharacter]);
   const [accounts, setAccounts] = useState<UserProfile[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
   const [seeding, setSeeding] = useState(false);
@@ -405,7 +432,20 @@ export function AdminDashboard({
   const inputClass =
     'theme-control w-full border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3.5 py-2.5 text-sm text-[var(--ink-primary)] placeholder:text-[var(--ink-muted)] focus:border-[var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)]';
 
-  const navItems: Array<{ id: AdminTab; label: string; icon: typeof LayoutDashboard }> = [
+  const pendingModerationCount = useMemo(
+    () =>
+      violations.filter(
+        (v) => v.status === 'unread' || v.appealStatus === 'pending'
+      ).length,
+    [violations]
+  );
+
+  const navItems: Array<{
+    id: AdminTab;
+    label: string;
+    icon: typeof LayoutDashboard;
+    badge?: number;
+  }> = [
     { id: 'overview', label: 'Tổng quan', icon: LayoutDashboard },
     { id: 'characters', label: 'Quản lý nhân vật', icon: FolderKanban },
     {
@@ -415,6 +455,12 @@ export function AdminDashboard({
     },
     { id: 'categories', label: 'Quản lý thể loại', icon: Database },
     { id: 'music', label: 'Quản lý nhạc', icon: Music },
+    {
+      id: 'moderation',
+      label: 'Vi phạm & Nội quy',
+      icon: ShieldAlert,
+      badge: pendingModerationCount,
+    },
     { id: 'users', label: 'Quản lý tài khoản', icon: Users },
     { id: 'drive', label: 'Google Drive', icon: Cloud },
   ];
@@ -514,10 +560,41 @@ export function AdminDashboard({
               >
                 <Icon className="h-3.5 w-3.5" />
                 <span>{tab.label}</span>
+                {tab.badge && tab.badge > 0 ? (
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 font-mono-archive text-[10px] font-bold leading-none ${
+                      active
+                        ? 'bg-[var(--accent-ink)]/20 text-[var(--accent-ink)]'
+                        : 'bg-rose-500 text-white'
+                    }`}
+                  >
+                    {tab.badge > 99 ? '99+' : tab.badge}
+                  </span>
+                ) : null}
               </button>
             );
           })}
         </nav>
+
+        {/* ================================================================
+            QUẢN LÝ VI PHẠM, KHIẾU NẠI & NỘI QUY DIỄN ĐÀN — ADMIN
+           ================================================================ */}
+        {activeTab === 'moderation' && (
+          <div className="mt-8">
+            <AdminModerationSection
+              theme={theme}
+              adminUser={adminUser}
+              violations={violations}
+              restrictions={restrictions}
+              auditLogs={auditLogs}
+              forumPosts={forumPosts}
+              publicProfiles={publicProfiles}
+              rulesConfig={rulesConfig}
+              onInspectForumPost={onInspectForumPost}
+              onNotify={onNotify}
+            />
+          </div>
+        )}
 
         {/* ================================================================
             QUẢN LÝ THƯ VIỆN NHẠC — ADMIN

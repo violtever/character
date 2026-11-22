@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import {
   AlertTriangle,
   CornerDownRight,
   Heart,
   Loader2,
+  Megaphone,
   MessageSquare,
   Pencil,
   Pin,
   Send,
   Shield,
+  ShieldAlert,
   Sparkles,
   Trash2,
   X,
@@ -19,20 +21,35 @@ import {
   deleteForumComment,
   updateForumComment,
 } from '../services/forumService';
+import {
+  formatDeadlineVi,
+  getActiveRestrictionState,
+  recordContentViolation,
+} from '../services/moderationService';
+import { notifyForumCommentInteraction } from '../services/notificationService';
 import type {
   ForumComment,
   ForumPost,
+  ForumViolation,
   PublicUserProfile,
+  ThemeMode,
   UserProfile,
+  UserRestriction,
 } from '../types/archive';
+import { analyzeContentForModeration } from '../utils/contentModeration';
 import { sfx } from '../utils/sfxEngine';
+import type { ModerationWarningPayload } from './ModerationWarningModal';
 
 interface ForumPostDetailModalProps {
+  theme: ThemeMode;
   post: ForumPost;
   comments: ForumComment[];
   publicProfiles: Record<string, PublicUserProfile>;
   currentUser: UserProfile | null;
   isAdmin: boolean;
+  ownRestriction: UserRestriction | null;
+  ownViolations: ForumViolation[];
+  highlightCommentId?: string | null;
   likeCount: number;
   isLiked: boolean;
   onClose: () => void;
@@ -40,8 +57,10 @@ interface ForumPostDetailModalProps {
   onEditPost: (post: ForumPost) => void;
   onRequestDeletePost: (post: ForumPost) => void;
   onTogglePin: (post: ForumPost) => void;
+  onToggleImportant: (post: ForumPost) => void;
   onToggleFeatured: (post: ForumPost) => void;
   onRequireLogin: (postId: string) => void;
+  onTriggerWarning: (warning: ModerationWarningPayload) => void;
   onNotify: (msg: string) => void;
 }
 
@@ -86,11 +105,15 @@ export function resolveLiveAuthor(
 }
 
 export function ForumPostDetailModal({
+  theme,
   post,
   comments,
   publicProfiles,
   currentUser,
   isAdmin,
+  ownRestriction,
+  ownViolations,
+  highlightCommentId = null,
   likeCount,
   isLiked,
   onClose,
@@ -98,8 +121,10 @@ export function ForumPostDetailModal({
   onEditPost,
   onRequestDeletePost,
   onTogglePin,
+  onToggleImportant,
   onToggleFeatured,
   onRequireLogin,
+  onTriggerWarning,
   onNotify,
 }: ForumPostDetailModalProps) {
   const [newComment, setNewComment] = useState('');
@@ -115,10 +140,20 @@ export function ForumPostDetailModal({
   const [editCommentDraft, setEditCommentDraft] = useState('');
   const [savingEditComment, setSavingEditComment] = useState(false);
 
+  // Draft-session deduplication keys so editing & retrying the same blocked draft never double-counts strikes
+  const rootDraftKeyRef = useRef<string>('');
+  const replyDraftKeyRef = useRef<string>('');
+  const editDraftKeyRef = useRef<string>('');
+
   // Confirm delete comment modal
   const [pendingDeleteComment, setPendingDeleteComment] =
     useState<ForumComment | null>(null);
   const [deletingComment, setDeletingComment] = useState(false);
+
+  const activeRestriction = useMemo(
+    () => getActiveRestrictionState(ownRestriction),
+    [ownRestriction]
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -134,6 +169,17 @@ export function ForumPostDetailModal({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, pendingDeleteComment]);
+
+  // Smoothly scroll highlighted comment (from Notification Center) into view
+  useEffect(() => {
+    if (!highlightCommentId) return;
+    const timer = window.setTimeout(() => {
+      document
+        .getElementById(`forum-comment-${highlightCommentId}`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 240);
+    return () => window.clearTimeout(timer);
+  }, [highlightCommentId, comments.length]);
 
   const postAuthor = resolveLiveAuthor(post, publicProfiles);
   const isPostOwner = Boolean(currentUser && currentUser.uid === post.authorId);
@@ -159,6 +205,51 @@ export function ForumPostDetailModal({
     return { rootComments: roots, repliesByParent: map };
   }, [postComments]);
 
+  const runCommentModerationGate = async (
+    text: string,
+    contentType: 'comment' | 'reply',
+    keyRef: { current: string }
+  ): Promise<boolean> => {
+    if (!currentUser || isAdmin) return true;
+
+    const latestRestriction = getActiveRestrictionState(ownRestriction);
+    if (latestRestriction.isCommentRestricted) {
+      onNotify(
+        `${latestRestriction.labelVi} đến ${formatDeadlineVi(latestRestriction.activeUntil)}. Bạn chưa thể gửi bình luận lúc này.`
+      );
+      return false;
+    }
+
+    const check = analyzeContentForModeration(text);
+    if (!check.flagged) return true;
+
+    if (!keyRef.current) {
+      keyRef.current = `${contentType}_${post.id}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    }
+
+    const recorded = await recordContentViolation({
+      user: currentUser,
+      contentType,
+      incidentKey: keyRef.current,
+      flaggedText: text,
+      result: check,
+      existingViolations: ownViolations,
+      currentRestriction: ownRestriction,
+      publicProfiles,
+    });
+
+    onTriggerWarning({
+      violationId: recorded.violationId,
+      strikeNumber: recorded.strikeNumber,
+      severity: check.severity,
+      reason: check.reason,
+      matchedExcerpt: check.matchedExcerpt,
+      alreadyRecordedForDraft: recorded.alreadyRecordedForDraft,
+      restrictedUntil: recorded.restrictedUntil,
+    });
+    return false;
+  };
+
   const handleCreateRootComment = async (e: FormEvent) => {
     e.preventDefault();
     if (!currentUser) {
@@ -173,14 +264,30 @@ export function ForumPostDetailModal({
 
     setSubmittingComment(true);
     try {
-      await createForumComment({
+      const allowed = await runCommentModerationGate(
+        newComment,
+        'comment',
+        rootDraftKeyRef
+      );
+      if (!allowed) return;
+
+      const textToSend = newComment;
+      const commentId = await createForumComment({
         postId: post.id,
         user: currentUser,
-        content: newComment,
+        content: textToSend,
       });
+      rootDraftKeyRef.current = '';
       setNewComment('');
       sfx.play('welcomeClick');
       onNotify('Đã gửi bình luận của bạn!');
+
+      void notifyForumCommentInteraction({
+        post,
+        commentId,
+        commentText: textToSend,
+        actor: currentUser,
+      });
     } catch (err) {
       onNotify(
         err instanceof Error ? err.message : 'Không thể gửi bình luận lúc này.'
@@ -204,18 +311,34 @@ export function ForumPostDetailModal({
 
     setSubmittingReply(true);
     try {
-      // Flatten deep replies onto the root thread cleanly
+      const allowed = await runCommentModerationGate(
+        replyDraft,
+        'reply',
+        replyDraftKeyRef
+      );
+      if (!allowed) return;
+
+      const textToSend = replyDraft;
       const targetParentId = parent.parentCommentId || parent.id;
-      await createForumComment({
+      const commentId = await createForumComment({
         postId: post.id,
         parentCommentId: targetParentId,
         user: currentUser,
-        content: replyDraft,
+        content: textToSend,
       });
+      replyDraftKeyRef.current = '';
       setReplyDraft('');
       setReplyingTo(null);
       sfx.play('welcomeClick');
       onNotify('Đã gửi phản hồi!');
+
+      void notifyForumCommentInteraction({
+        post,
+        commentId,
+        commentText: textToSend,
+        actor: currentUser,
+        parentCommentAuthorId: parent.authorId,
+      });
     } catch (err) {
       onNotify(
         err instanceof Error ? err.message : 'Không thể gửi phản hồi lúc này.'
@@ -229,11 +352,19 @@ export function ForumPostDetailModal({
     if (!currentUser || !editCommentDraft.trim()) return;
     setSavingEditComment(true);
     try {
+      const allowed = await runCommentModerationGate(
+        editCommentDraft,
+        'comment',
+        editDraftKeyRef
+      );
+      if (!allowed) return;
+
       await updateForumComment({
         commentId,
         user: currentUser,
         content: editCommentDraft,
       });
+      editDraftKeyRef.current = '';
       setEditingCommentId(null);
       setEditCommentDraft('');
       sfx.play('filterSelect');
@@ -272,26 +403,44 @@ export function ForumPostDetailModal({
 
   const renderCommentItem = (comment: ForumComment, isReply = false) => {
     const author = resolveLiveAuthor(comment, publicProfiles);
+    const isAuthorAdmin = author.role === 'admin';
     const isCommentOwner = Boolean(
       currentUser && currentUser.uid === comment.authorId
     );
     const canDelete = isCommentOwner || isAdmin;
     const isEditing = editingCommentId === comment.id;
     const wasEdited = comment.updatedAt - comment.createdAt > 5000;
+    const isHighlighted = highlightCommentId === comment.id;
+
+    // Automatic highlight for EVERY Admin comment/reply in both Light & Dark Mode
+    const commentSurfaceClass = isAuthorAdmin
+      ? theme === 'light'
+        ? 'border-[#7aa6f4]/70 bg-[#edf4ff] shadow-[0_6px_18px_-10px_rgba(37,88,212,0.3)]'
+        : 'border-[#b52b44]/60 bg-[#251017] shadow-[0_6px_20px_-10px_rgba(0,0,0,0.75)]'
+      : 'border-[var(--border-hairline)] bg-[var(--bg-canvas)]/85';
 
     return (
       <div
         key={comment.id}
-        className={`${
-          isReply
-            ? 'ml-7 border-l-2 border-[var(--border-strong)]/60 pl-4 sm:ml-10'
-            : ''
-        }`}
+        id={`forum-comment-${comment.id}`}
+        className={`${isReply ? 'ml-6 pl-3.5 sm:ml-10 sm:pl-4' : ''}`}
       >
-        <div className="theme-control border border-[var(--border-hairline)] bg-[var(--bg-canvas)]/85 p-3.5">
+        <div
+          className={`theme-control border p-3.5 transition-all ${commentSurfaceClass} ${
+            isHighlighted
+              ? 'ring-2 ring-[var(--accent-primary)] ring-offset-2 ring-offset-[var(--bg-surface)]'
+              : ''
+          }`}
+        >
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 items-center gap-2.5">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--border-hairline)] bg-[var(--accent-soft)] text-xs font-semibold text-[var(--accent-primary)]">
+              <div
+                className={`flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full text-xs font-semibold ${
+                  isAuthorAdmin
+                    ? 'border-2 border-[var(--accent-primary)] bg-[var(--accent-soft)] text-[var(--accent-primary)] ring-2 ring-[var(--accent-primary)]/20'
+                    : 'border border-[var(--border-hairline)] bg-[var(--accent-soft)] text-[var(--accent-primary)]'
+                }`}
+              >
                 {author.photoURL ? (
                   <img
                     src={author.photoURL}
@@ -308,10 +457,15 @@ export function ForumPostDetailModal({
                   <span className="truncate text-xs font-semibold text-[var(--ink-primary)]">
                     {author.displayName}
                   </span>
-                  {author.role === 'admin' && (
+                  {isAuthorAdmin && (
                     <span className="inline-flex items-center gap-0.5 rounded bg-[var(--accent-primary)] px-1.5 py-0.5 font-mono-archive text-[9px] font-bold tracking-wider text-[var(--accent-ink)] uppercase">
                       <Shield className="h-2.5 w-2.5" />
-                      ADMIN
+                      ✦ ADMIN
+                    </span>
+                  )}
+                  {isAuthorAdmin && isReply && (
+                    <span className="inline-flex items-center rounded border border-[var(--accent-primary)]/45 bg-[var(--accent-soft)] px-1.5 py-0.5 font-mono-archive text-[9px] font-semibold tracking-wider text-[var(--accent-primary)] uppercase">
+                      ADMIN REPLY
                     </span>
                   )}
                 </div>
@@ -331,6 +485,7 @@ export function ForumPostDetailModal({
                     onRequireLogin(post.id);
                     return;
                   }
+                  replyDraftKeyRef.current = '';
                   setReplyingTo(comment);
                   setReplyDraft(`@${author.displayName} `);
                 }}
@@ -344,6 +499,7 @@ export function ForumPostDetailModal({
                 <button
                   type="button"
                   onClick={() => {
+                    editDraftKeyRef.current = '';
                     setEditingCommentId(comment.id);
                     setEditCommentDraft(comment.content);
                   }}
@@ -493,10 +649,16 @@ export function ForumPostDetailModal({
                 {postAuthor.role === 'admin' && (
                   <span className="inline-flex items-center gap-1 rounded bg-[var(--accent-primary)] px-2 py-0.5 font-mono-archive text-[10px] font-bold tracking-wider text-[var(--accent-ink)] uppercase">
                     <Shield className="h-3 w-3" />
-                    ADMIN
+                    ✦ ADMIN
                   </span>
                 )}
-                {post.isPinned && (
+                {post.isImportant && (
+                  <span className="inline-flex items-center gap-1 rounded border border-[var(--accent-primary)] bg-[var(--accent-primary)]/15 px-2 py-0.5 text-[10px] font-semibold text-[var(--accent-primary)]">
+                    <Megaphone className="h-2.5 w-2.5" />
+                    Ghim quan trọng
+                  </span>
+                )}
+                {post.isPinned && !post.isImportant && (
                   <span className="inline-flex items-center gap-1 rounded border border-[var(--accent-primary)]/50 bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent-primary)]">
                     <Pin className="h-2.5 w-2.5" />
                     Đã ghim
@@ -584,6 +746,20 @@ export function ForumPostDetailModal({
                   <>
                     <button
                       type="button"
+                      onClick={() => onToggleImportant(post)}
+                      className={`theme-control inline-flex h-8 items-center gap-1 border px-2.5 text-[11px] font-semibold ${
+                        post.isImportant
+                          ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-ink)]'
+                          : 'border-[var(--border-hairline)] text-[var(--ink-secondary)] hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]'
+                      }`}
+                    >
+                      <Megaphone className="h-3 w-3" />
+                      <span>
+                        {post.isImportant ? 'Tắt quan trọng' : 'Ghim quan trọng'}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => onTogglePin(post)}
                       className={`theme-control inline-flex h-8 items-center gap-1 border px-2.5 text-[11px] font-medium ${
                         post.isPinned
@@ -645,36 +821,56 @@ export function ForumPostDetailModal({
 
             {/* Comment Composer */}
             {currentUser ? (
-              <form onSubmit={handleCreateRootComment} className="space-y-2.5">
-                <textarea
-                  rows={3}
-                  maxLength={3000}
-                  value={newComment}
-                  onChange={(e) => setNewComment(e.target.value)}
-                  placeholder="Viết bình luận chia sẻ cảm nghĩ của bạn..."
-                  className="theme-control w-full border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3.5 py-2.5 text-sm text-[var(--ink-primary)] placeholder:text-[var(--ink-muted)] focus:border-[var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)]"
-                />
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-[var(--ink-muted)]">
-                    Đang bình luận với tên{' '}
-                    <strong className="text-[var(--ink-primary)]">
-                      {currentUser.displayName}
-                    </strong>
-                  </span>
-                  <button
-                    type="submit"
-                    disabled={submittingComment || !newComment.trim()}
-                    className="theme-control inline-flex h-9 items-center gap-1.5 bg-[var(--accent-primary)] px-4 text-xs font-semibold text-[var(--accent-ink)] hover:bg-[var(--accent-hover)] disabled:opacity-50"
-                  >
-                    {submittingComment ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Send className="h-3.5 w-3.5" />
+              !isAdmin && activeRestriction.isCommentRestricted ? (
+                <div className="theme-control flex items-start gap-3 border border-rose-500/40 bg-rose-500/10 p-4 text-xs text-rose-600 dark:text-rose-300">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div>
+                    <p className="font-semibold">
+                      {activeRestriction.labelVi} đến{' '}
+                      {formatDeadlineVi(activeRestriction.activeUntil)}
+                    </p>
+                    {ownRestriction?.reason && (
+                      <p className="mt-1 opacity-90">{ownRestriction.reason}</p>
                     )}
-                    <span>Gửi bình luận</span>
-                  </button>
+                  </div>
                 </div>
-              </form>
+              ) : (
+                <form onSubmit={handleCreateRootComment} className="space-y-2.5">
+                  <textarea
+                    rows={3}
+                    maxLength={3000}
+                    value={newComment}
+                    onChange={(e) => {
+                      setNewComment(e.target.value);
+                      if (!e.target.value.trim()) {
+                        rootDraftKeyRef.current = '';
+                      }
+                    }}
+                    placeholder="Viết bình luận chia sẻ cảm nghĩ một cách văn minh, lịch sự..."
+                    className="theme-control w-full border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3.5 py-2.5 text-sm text-[var(--ink-primary)] placeholder:text-[var(--ink-muted)] focus:border-[var(--accent-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)]"
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] text-[var(--ink-muted)]">
+                      Đang bình luận với tên{' '}
+                      <strong className="text-[var(--ink-primary)]">
+                        {currentUser.displayName}
+                      </strong>
+                    </span>
+                    <button
+                      type="submit"
+                      disabled={submittingComment || !newComment.trim()}
+                      className="theme-control inline-flex h-9 items-center gap-1.5 bg-[var(--accent-primary)] px-4 text-xs font-semibold text-[var(--accent-ink)] hover:bg-[var(--accent-hover)] disabled:opacity-50"
+                    >
+                      {submittingComment ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Send className="h-3.5 w-3.5" />
+                      )}
+                      <span>Gửi bình luận</span>
+                    </button>
+                  </div>
+                </form>
+              )
             ) : (
               <div className="theme-control flex flex-col items-center justify-between gap-3 border border-dashed border-[var(--border-strong)] bg-[var(--bg-canvas)]/70 p-4 text-center sm:flex-row sm:text-left">
                 <p className="text-xs text-[var(--ink-secondary)]">
