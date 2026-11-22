@@ -1,0 +1,8 @@
+{
+  "name": "Character Archive",
+  "description": "A personal editorial character archive and visual keepsake library featuring Ocean Blue light mode, Wine Red dark mode, ambient soundscapes, and curated dossiers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

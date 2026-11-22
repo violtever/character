@@ -1,0 +1,316 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   XOCYBERLUV'S CHARACTER ARCHIVE — DUAL-PERSONALITY THEME SYSTEM
+   LIGHT MODE: Cute / Dreamy (Baby blue, powder blue, milky white,
+               pastel lavender, blush pink, cobalt blue accent)
+   DARK MODE:  Mysterious / Wine Archive (Burgundy, wine red, deep crimson,
+               velvet black, dark charcoal, antique cream)
+   ========================================================================== */
+
+:root {
+  --bg-canvas: #f4f8ff;
+  --bg-surface: #ffffff;
+  --bg-elevated: #eaf1ff;
+  --bg-subtle: rgba(181, 156, 235, 0.12);
+  --bg-blush: rgba(244, 174, 204, 0.22);
+
+  --ink-primary: #1c2c54;
+  --ink-secondary: #4a5e8c;
+  --ink-muted: #7688b2;
+
+  --accent-primary: #2558d4;
+  --accent-hover: #1b44ad;
+  --accent-secondary: #e280a7;
+  --accent-lavender: #9e86e3;
+  --accent-soft: rgba(37, 88, 212, 0.11);
+  --accent-ink: #ffffff;
+
+  --border-hairline: rgba(94, 128, 194, 0.2);
+  --border-strong: rgba(37, 88, 212, 0.34);
+  --glow-ambient: rgba(114, 158, 240, 0.32);
+  --scrim-base: rgba(24, 38, 76, 0.56);
+  --card-shadow: 0 18px 40px -18px rgba(80, 118, 198, 0.28);
+
+  --radius-card: 1.25rem;
+  --radius-panel: 1.5rem;
+  --radius-control: 0.875rem;
+  --ease-theme: cubic-bezier(0.34, 1.38, 0.64, 1);
+}
+
+.dark {
+  --bg-canvas: #0b0406;
+  --bg-surface: #170a0e;
+  --bg-elevated: #220e15;
+  --bg-subtle: rgba(196, 62, 86, 0.1);
+  --bg-blush: rgba(140, 26, 48, 0.22);
+
+  --ink-primary: #f5ebe3;
+  --ink-secondary: #d3b9be;
+  --ink-muted: #9c7a82;
+
+  --accent-primary: #b52b44;
+  --accent-hover: #cf3b57;
+  --accent-secondary: #d9a79c;
+  --accent-lavender: #7d2336;
+  --accent-soft: rgba(181, 43, 68, 0.22);
+  --accent-ink: #fdf5f2;
+
+  --border-hairline: rgba(245, 235, 227, 0.12);
+  --border-strong: rgba(217, 167, 156, 0.28);
+  --glow-ambient: rgba(181, 43, 68, 0.34);
+  --scrim-base: rgba(6, 2, 4, 0.84);
+  --card-shadow: 0 20px 48px -20px rgba(0, 0, 0, 0.85);
+
+  --radius-card: 0.55rem;
+  --radius-panel: 0.75rem;
+  --radius-control: 0.45rem;
+  --ease-theme: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    background-color: var(--bg-canvas);
+    color: var(--ink-primary);
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--bg-canvas);
+    color: var(--ink-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+    transition:
+      background-color 520ms cubic-bezier(0.22, 1, 0.36, 1),
+      color 480ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .dark body {
+    letter-spacing: 0.01em;
+  }
+
+  ::selection {
+    background-color: var(--accent-primary);
+    color: var(--accent-ink);
+  }
+}
+
+.font-editorial {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+.font-brand-signature {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+}
+
+.font-mono-archive {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Synchronized dual-personality theme surfaces */
+.theme-surface {
+  transition:
+    background-color 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 420ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.theme-card {
+  border-radius: var(--radius-card);
+  transition:
+    transform 320ms var(--ease-theme),
+    background-color 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-radius 480ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.theme-panel {
+  border-radius: var(--radius-panel);
+}
+
+.theme-control {
+  border-radius: var(--radius-control);
+  transition:
+    transform 200ms var(--ease-theme),
+    background-color 220ms ease,
+    border-color 220ms ease,
+    color 220ms ease,
+    box-shadow 220ms ease,
+    border-radius 420ms ease;
+}
+
+/* Light mode dreamy background veil vs Dark mode gothic velvet vignette */
+.archive-backdrop-light {
+  background-image:
+    radial-gradient(circle at 12% 10%, rgba(196, 222, 255, 0.65) 0%, transparent 42%),
+    radial-gradient(circle at 88% 14%, rgba(235, 218, 255, 0.58) 0%, transparent 40%),
+    radial-gradient(circle at 78% 72%, rgba(251, 214, 232, 0.44) 0%, transparent 44%);
+}
+
+.dark .archive-backdrop-light {
+  background-image:
+    radial-gradient(ellipse at 50% -10%, rgba(154, 28, 52, 0.28) 0%, transparent 55%),
+    radial-gradient(circle at 14% 78%, rgba(102, 16, 34, 0.22) 0%, transparent 46%),
+    radial-gradient(circle at 90% 60%, rgba(74, 12, 26, 0.24) 0%, transparent 44%);
+}
+
+/* Subtle analog paper / film grain texture */
+.archive-grain {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  opacity: 0.024;
+}
+
+.dark .archive-grain {
+  opacity: 0.056;
+}
+
+/* Dreamy floating animation for Light Mode stickers & motifs */
+@keyframes dreamyFloat {
+  0%, 100% {
+    transform: translate3d(0, 0px, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate3d(0, -7px, 0) rotate(2.5deg);
+  }
+}
+
+.animate-dreamy-float {
+  animation: dreamyFloat 6.5s ease-in-out infinite;
+}
+
+@keyframes ambientBreath {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.72;
+  }
+  50% {
+    transform: translate3d(1.5%, -1.5%, 0) scale(1.06);
+    opacity: 0.96;
+  }
+}
+
+.animate-ambient-breath {
+  animation: ambientBreath 14s ease-in-out infinite;
+}
+
+@keyframes marqueeScroll {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+  100% {
+    transform: translate3d(-50%, 0, 0);
+  }
+}
+
+.animate-marquee {
+  animation: marqueeScroll 40s linear infinite;
+}
+
+.animate-marquee:hover {
+  animation-play-state: paused;
+}
+
+@keyframes scanSweep {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.48;
+  }
+  80% {
+    opacity: 0.48;
+  }
+  100% {
+    transform: translateY(100vh);
+    opacity: 0;
+  }
+}
+
+.animate-scan-sweep {
+  animation: scanSweep 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.editorial-dropcap::first-letter {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 3.35rem;
+  line-height: 0.84;
+  font-weight: 600;
+  float: left;
+  margin-right: 0.6rem;
+  margin-top: 0.2rem;
+  color: var(--accent-primary);
+}
+
+.archive-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.archive-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.archive-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+.archive-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-primary);
+}
+
+input[type='range'].archive-range {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range'].archive-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--border-hairline);
+}
+
+input[type='range'].archive-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 11px;
+  width: 11px;
+  border-radius: 999px;
+  background: var(--accent-primary);
+  margin-top: -4px;
+  transition: transform 150ms ease;
+}
+
+input[type='range'].archive-range:hover::-webkit-slider-thumb {
+  transform: scale(1.22);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-ambient-breath,
+  .animate-dreamy-float,
+  .animate-marquee,
+  .animate-scan-sweep {
+    animation: none !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}

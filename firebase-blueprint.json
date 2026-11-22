@@ -1,0 +1,313 @@
+{
+  "entities": {
+    "Character": {
+      "title": "Character",
+      "description": "A character dossier in xocyberluv's character archive.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Accession identifier such as ARC-001"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Character display name"
+        },
+        "image": {
+          "type": "string",
+          "maxLength": 250000,
+          "description": "Portrait image path, HTTPS URL, or compressed data URL"
+        },
+        "subtitle": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Short character epithet or subtitle"
+        },
+        "genre": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Primary category or genre name"
+        },
+        "tags": {
+          "type": "array",
+          "description": "Up to 15 descriptive tags"
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "Short character description"
+        },
+        "plot": {
+          "type": "string",
+          "maxLength": 15000,
+          "description": "Long-form character story or plot"
+        },
+        "link": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "External character link"
+        },
+        "linkLabel": {
+          "type": "string",
+          "maxLength": 60,
+          "description": "Optional external button label"
+        },
+        "pinned": {
+          "type": "boolean",
+          "description": "Whether the character is featured/pinned by admin"
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Admin UID who created this record"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server last-updated timestamp"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "image",
+        "subtitle",
+        "genre",
+        "tags",
+        "description",
+        "plot",
+        "link",
+        "pinned",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Category": {
+      "title": "Category",
+      "description": "An editorial category managed by administrators.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60,
+          "description": "Category display name"
+        },
+        "slug": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "pattern": "^[a-z0-9_\\-]+$",
+          "description": "Normalized slug"
+        },
+        "order": {
+          "type": "number",
+          "description": "Display sort order"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["name", "slug", "order", "createdAt", "updatedAt"]
+    },
+    "GalleryItem": {
+      "title": "GalleryItem",
+      "description": "An independent decorative gallery image.",
+      "type": "object",
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 250000
+        },
+        "caption": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "date": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "category": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "span": {
+          "type": "string",
+          "enum": ["tall", "wide", "standard"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["image", "caption", "date", "category", "span", "createdAt", "updatedAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user profile containing PII (email) and server-governed role.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32,
+          "pattern": "^[a-z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": ["user", "admin"]
+        },
+        "photoURL": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "displayName", "username", "email", "role", "createdAt", "updatedAt"]
+    },
+    "UserFavorite": {
+      "title": "UserFavorite",
+      "description": "A member's personal saved favorite character reference.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "characterId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["userId", "characterId", "createdAt"]
+    },
+    "UsernameClaim": {
+      "title": "UsernameClaim",
+      "description": "Non-PII username uniqueness reservation.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "username": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 32,
+          "pattern": "^[a-z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "username", "createdAt"]
+    },
+    "AdminGrant": {
+      "title": "AdminGrant",
+      "description": "Trusted admin allowlist document.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "grantedBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "grantedBy", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/characters/{characterId}": {
+      "schema": { "$ref": "#/entities/Character" },
+      "description": "Publicly readable character dossiers; create/update/delete restricted to verified admins."
+    },
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Publicly readable category list; managed exclusively by verified admins."
+    },
+    "/gallery/{itemId}": {
+      "schema": { "$ref": "#/entities/GalleryItem" },
+      "description": "Publicly readable independent decorative image gallery; managed by verified admins."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "PII-isolated user profiles; readable only by owner or admin; role immutable by regular users."
+    },
+    "/users/{userId}/favorites/{characterId}": {
+      "schema": { "$ref": "#/entities/UserFavorite" },
+      "description": "Member-only personal favorite bookmarks linked to existing characters."
+    },
+    "/usernames/{username}": {
+      "schema": { "$ref": "#/entities/UsernameClaim" },
+      "description": "Non-PII username reservations ensuring unique usernames."
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminGrant" },
+      "description": "Trusted administrator grant documents."
+    }
+  }
+}

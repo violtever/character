@@ -1,0 +1,268 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core primitives
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerified() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerified() && (
+        request.auth.token.email == 'lailameowdayy@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidUsername(username) {
+      return username is string && username.size() >= 3 && username.size() <= 32 && username.matches('^[a-z0-9_\\-]+$');
+    }
+
+    function isValidCharacter(data) {
+      return data.keys().hasAll([
+          'id', 'name', 'image', 'subtitle', 'genre', 'tags',
+          'description', 'plot', 'link', 'pinned', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'name', 'image', 'subtitle', 'genre', 'tags',
+          'description', 'plot', 'link', 'linkLabel', 'pinned', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.image is string && data.image.size() <= 250000 &&
+        data.subtitle is string && data.subtitle.size() <= 200 &&
+        data.genre is string && data.genre.size() >= 1 && data.genre.size() <= 60 &&
+        data.tags is list && data.tags.size() <= 15 && (data.tags.size() == 0 || (data.tags[0] is string && data.tags[0].size() <= 40)) &&
+        data.description is string && data.description.size() <= 2000 &&
+        data.plot is string && data.plot.size() <= 15000 &&
+        data.link is string && data.link.size() <= 1000 &&
+        (!('linkLabel' in data) || (data.linkLabel is string && data.linkLabel.size() <= 60)) &&
+        data.pinned is bool &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['name', 'slug', 'order', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['name', 'slug', 'order', 'createdAt', 'updatedAt']) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 60 &&
+        data.slug is string && data.slug.size() >= 1 && data.slug.size() <= 80 && data.slug.matches('^[a-z0-9_\\-]+$') &&
+        data.order is number && data.order >= 0 && data.order <= 9999 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidGalleryItem(data) {
+      return data.keys().hasAll(['image', 'caption', 'date', 'category', 'span', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['image', 'caption', 'date', 'category', 'span', 'createdAt', 'updatedAt']) &&
+        data.image is string && data.image.size() >= 1 && data.image.size() <= 250000 &&
+        data.caption is string && data.caption.size() >= 1 && data.caption.size() <= 200 &&
+        data.date is string && data.date.size() <= 60 &&
+        data.category is string && data.category.size() <= 80 &&
+        data.span is string && data.span in ['tall', 'wide', 'standard'] &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'username', 'email', 'role', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'username', 'email', 'role', 'photoURL', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        isValidUsername(data.username) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.role is string && data.role in ['user', 'admin'] &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidFavorite(data) {
+      return data.keys().hasAll(['userId', 'characterId', 'createdAt']) &&
+        data.keys().hasOnly(['userId', 'characterId', 'createdAt']) &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        isValidId(data.characterId) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUsernameClaim(data) {
+      return data.keys().hasAll(['uid', 'username', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'username', 'createdAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        isValidUsername(data.username) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidAdminRecord(data) {
+      return data.keys().hasAll(['uid', 'grantedBy', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'grantedBy', 'createdAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.grantedBy is string && data.grantedBy.size() >= 1 && data.grantedBy.size() <= 128 &&
+        data.createdAt is timestamp;
+    }
+
+    // 1. Public Archive: Characters (Guest/User read; Admin write)
+    match /characters/{characterId} {
+      allow get: if isValidId(characterId);
+      allow list: if true;
+      allow create: if isValidId(characterId) &&
+        isValidCharacter(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        incoming().createdBy == request.auth.uid &&
+        isAdmin();
+      allow update: if isValidId(characterId) &&
+        isValidCharacter(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'id', 'name', 'image', 'subtitle', 'genre', 'tags',
+          'description', 'plot', 'link', 'linkLabel', 'pinned', 'updatedAt'
+        ]) &&
+        isAdmin();
+      allow delete: if isValidId(characterId) && isAdmin();
+    }
+
+    // 2. Public Archive: Categories (Guest/User read; Admin write)
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId);
+      allow list: if true;
+      allow create: if isValidId(categoryId) &&
+        isValidCategory(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isValidId(categoryId) &&
+        isValidCategory(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'slug', 'order', 'updatedAt']) &&
+        isAdmin();
+      allow delete: if isValidId(categoryId) && isAdmin();
+    }
+
+    // 3. Public Archive: Independent Decorative Gallery (Guest/User read; Admin write)
+    match /gallery/{itemId} {
+      allow get: if isValidId(itemId);
+      allow list: if true;
+      allow create: if isValidId(itemId) &&
+        isValidGalleryItem(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isAdmin();
+      allow update: if isValidId(itemId) &&
+        isValidGalleryItem(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'image', 'caption', 'date', 'category', 'span', 'updatedAt'
+        ]) &&
+        isAdmin();
+      allow delete: if isValidId(itemId) && isAdmin();
+    }
+
+    // 4. PII-Isolated User Profiles
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == userId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        isOwner(userId) &&
+        (incoming().role == 'user' || (incoming().role == 'admin' && isAdmin()));
+      allow update: if isValidId(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          (isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'username', 'photoURL', 'updatedAt'])) ||
+          (isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'username', 'photoURL', 'role', 'updatedAt']))
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+
+      // 5. Personal User Favorites Subcollection (Master Gate)
+      match /favorites/{characterId} {
+        allow get: if isValidId(userId) && isValidId(characterId) && isOwner(userId);
+        allow list: if isValidId(userId) && isOwner(userId) && resource.data.userId == request.auth.uid;
+        allow create: if isValidId(userId) &&
+          isValidId(characterId) &&
+          isValidFavorite(incoming()) &&
+          incoming().userId == userId &&
+          incoming().characterId == characterId &&
+          incoming().createdAt == request.time &&
+          isOwner(userId) &&
+          exists(/databases/$(database)/documents/characters/$(characterId));
+        allow update: if false;
+        allow delete: if isValidId(userId) && isValidId(characterId) && isOwner(userId);
+      }
+    }
+
+    // 6. Non-PII Username Uniqueness Reservations
+    match /usernames/{username} {
+      allow get: if isValidUsername(username);
+      allow list: if false;
+      allow create: if isValidUsername(username) &&
+        isValidUsernameClaim(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().username == username &&
+        incoming().createdAt == request.time &&
+        isVerified();
+      allow update: if false;
+      allow delete: if isValidUsername(username) && (
+        isAdmin() || (isVerified() && existing().uid == request.auth.uid)
+      );
+    }
+
+    // 7. Trusted Admin Allowlist
+    match /admins/{adminUid} {
+      allow get: if isValidId(adminUid) && (isOwner(adminUid) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isValidId(adminUid) &&
+        isValidAdminRecord(incoming()) &&
+        incoming().uid == adminUid &&
+        incoming().grantedBy == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        isAdmin();
+      allow update: if false;
+      allow delete: if isValidId(adminUid) && isAdmin() && adminUid != request.auth.uid;
+    }
+
+    // 8. Startup Connection Probe
+    match /test/{docId} {
+      allow get: if docId == 'connection';
+      allow list, write: if false;
+    }
+  }
+}

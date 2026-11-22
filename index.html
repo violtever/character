@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>xocyberluv’s character archive — Thư viện nhân vật cá nhân</title>
+    <meta
+      name="description"
+      content="Một góc nhỏ lưu giữ những nhân vật và câu chuyện của riêng tôi — YOUR LITTLE WORLD OF CHARACTERS & STORIES."
+    />
+    <meta property="og:title" content="xocyberluv’s character archive" />
+    <meta
+      property="og:description"
+      content="Một góc nhỏ lưu giữ những nhân vật và câu chuyện của riêng tôi — YOUR LITTLE WORLD OF CHARACTERS & STORIES."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,600&family=IBM+Plex+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('character_archive_theme');
+          if (saved === 'dark') {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
