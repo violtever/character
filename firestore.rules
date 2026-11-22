@@ -90,6 +90,48 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidTrack(data) {
+      return data.keys().hasAll([
+          'id', 'title', 'artist', 'description', 'cover',
+          'audioType', 'audioUrl', 'audioMimeType', 'audioFileName',
+          'audioFileSize', 'audioChunkCount', 'audioVersion',
+          'duration', 'order', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'title', 'artist', 'description', 'cover',
+          'audioType', 'audioUrl', 'audioMimeType', 'audioFileName',
+          'audioFileSize', 'audioChunkCount', 'audioVersion',
+          'duration', 'order', 'createdBy', 'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.artist is string && data.artist.size() >= 1 && data.artist.size() <= 120 &&
+        data.description is string && data.description.size() <= 400 &&
+        data.cover is string && data.cover.size() <= 250000 &&
+        data.audioType is string && data.audioType in ['chunks', 'url'] &&
+        data.audioUrl is string && data.audioUrl.size() <= 1000 &&
+        data.audioMimeType is string && data.audioMimeType.size() <= 80 &&
+        data.audioFileName is string && data.audioFileName.size() <= 180 &&
+        data.audioFileSize is number && data.audioFileSize >= 0 && data.audioFileSize <= 10485760 &&
+        data.audioChunkCount is number && data.audioChunkCount >= 0 && data.audioChunkCount <= 40 &&
+        data.audioVersion is number && data.audioVersion >= 1 && data.audioVersion <= 99999 &&
+        data.duration is number && data.duration >= 0 && data.duration <= 7200 &&
+        data.order is number && data.order >= 0 && data.order <= 99999 &&
+        data.createdBy is string && data.createdBy.size() >= 1 && data.createdBy.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTrackAudioChunk(data) {
+      return data.keys().hasAll(['trackId', 'chunkIndex', 'audioVersion', 'data', 'createdAt']) &&
+        data.keys().hasOnly(['trackId', 'chunkIndex', 'audioVersion', 'data', 'createdAt']) &&
+        data.trackId is string && data.trackId.size() >= 1 && data.trackId.size() <= 64 && data.trackId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.chunkIndex is number && data.chunkIndex >= 0 && data.chunkIndex <= 40 &&
+        data.audioVersion is number && data.audioVersion >= 1 && data.audioVersion <= 99999 &&
+        data.data is string && data.data.size() >= 1 && data.data.size() <= 600000 &&
+        data.createdAt is timestamp;
+    }
+
     function isValidUserProfile(data) {
       return data.keys().hasAll(['uid', 'displayName', 'username', 'email', 'role', 'createdAt', 'updatedAt']) &&
         data.keys().hasOnly(['uid', 'displayName', 'username', 'email', 'role', 'photoURL', 'createdAt', 'updatedAt']) &&
@@ -188,7 +230,49 @@ service cloud.firestore {
       allow delete: if isValidId(itemId) && isAdmin();
     }
 
-    // 4. PII-Isolated User Profiles
+    // 4. Public Archive: Music Library & Audio Chunks (Guest/User listen; Admin manage)
+    match /tracks/{trackId} {
+      allow get: if isValidId(trackId);
+      allow list: if true;
+      allow create: if isValidId(trackId) &&
+        isValidTrack(incoming()) &&
+        incoming().id == trackId &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        incoming().createdBy == request.auth.uid &&
+        isAdmin();
+      allow update: if isValidId(trackId) &&
+        isValidTrack(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().createdBy == existing().createdBy &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'artist', 'description', 'cover',
+          'audioType', 'audioUrl', 'audioMimeType', 'audioFileName',
+          'audioFileSize', 'audioChunkCount', 'audioVersion',
+          'duration', 'order', 'updatedAt'
+        ]) &&
+        isAdmin();
+      allow delete: if isValidId(trackId) && isAdmin();
+
+      // Master Gate for immutable audio binary chunks
+      match /audioChunks/{chunkId} {
+        allow get: if isValidId(trackId) && isValidId(chunkId);
+        allow list: if isValidId(trackId) && resource.data.trackId == trackId;
+        allow create: if isValidId(trackId) &&
+          isValidId(chunkId) &&
+          isValidTrackAudioChunk(incoming()) &&
+          incoming().trackId == trackId &&
+          incoming().createdAt == request.time &&
+          isAdmin() &&
+          exists(/databases/$(database)/documents/tracks/$(trackId));
+        allow update: if false;
+        allow delete: if isValidId(trackId) && isValidId(chunkId) && isAdmin();
+      }
+    }
+
+    // 5. PII-Isolated User Profiles
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isAdmin();
@@ -212,7 +296,7 @@ service cloud.firestore {
         );
       allow delete: if isValidId(userId) && isAdmin();
 
-      // 5. Personal User Favorites Subcollection (Master Gate)
+      // Personal User Favorites Subcollection (Master Gate)
       match /favorites/{characterId} {
         allow get: if isValidId(userId) && isValidId(characterId) && isOwner(userId);
         allow list: if isValidId(userId) && isOwner(userId) && resource.data.userId == request.auth.uid;

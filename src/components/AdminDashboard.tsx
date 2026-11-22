@@ -10,6 +10,7 @@ import {
   FolderKanban,
   ImagePlus,
   LayoutDashboard,
+  Music,
   Pencil,
   Plus,
   Search,
@@ -35,6 +36,7 @@ import type {
   CategoryRecord,
   CharacterRecord,
   GalleryItem,
+  MusicTrack,
   ThemeMode,
   UserProfile,
 } from '../types/archive';
@@ -42,12 +44,14 @@ import { compressImageFile } from '../utils/imageCompressor';
 import { sfx } from '../utils/sfxEngine';
 import { BrandWordmark } from './BrandWordmark';
 import { DriveBackupSection } from './DriveBackupSection';
+import { MusicManagerSection } from './MusicManagerSection';
 
 export type AdminTab =
   | 'overview'
   | 'characters'
   | 'form'
   | 'categories'
+  | 'music'
   | 'users'
   | 'drive';
 
@@ -57,6 +61,7 @@ interface AdminDashboardProps {
   characters: CharacterRecord[];
   categories: CategoryRecord[];
   galleryItems: GalleryItem[];
+  tracks: MusicTrack[];
   isDbEmpty: boolean;
   initialTab?: AdminTab;
   editingCharacter?: CharacterRecord | null;
@@ -71,6 +76,7 @@ export function AdminDashboard({
   characters,
   categories,
   galleryItems,
+  tracks,
   isDbEmpty,
   initialTab = 'overview',
   editingCharacter = null,
@@ -408,6 +414,7 @@ export function AdminDashboard({
       icon: Plus,
     },
     { id: 'categories', label: 'Quản lý thể loại', icon: Database },
+    { id: 'music', label: 'Quản lý nhạc', icon: Music },
     { id: 'users', label: 'Quản lý tài khoản', icon: Users },
     { id: 'drive', label: 'Google Drive', icon: Cloud },
   ];
@@ -513,6 +520,19 @@ export function AdminDashboard({
         </nav>
 
         {/* ================================================================
+            QUẢN LÝ THƯ VIỆN NHẠC — ADMIN
+           ================================================================ */}
+        {activeTab === 'music' && (
+          <div className="mt-8">
+            <MusicManagerSection
+              adminUid={adminUser.uid}
+              tracks={tracks}
+              onNotify={onNotify}
+            />
+          </div>
+        )}
+
+        {/* ================================================================
             GOOGLE DRIVE BACKUP & SYNC TAB
            ================================================================ */}
         {activeTab === 'drive' && (
@@ -582,6 +602,36 @@ export function AdminDashboard({
                   Hồ sơ mới cập nhật gần đây
                 </p>
               </div>
+            </div>
+
+            {/* Music Library Quick Summary Banner */}
+            <div className="theme-card flex flex-col justify-between gap-4 border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-5 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-3.5">
+                <div className="theme-control flex h-11 w-11 shrink-0 items-center justify-center border border-[var(--border-strong)] bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                  <Music className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-mono-archive text-[11px] tracking-wider text-[var(--ink-muted)] uppercase">
+                    Thư viện nhạc nền website
+                  </p>
+                  <p className="mt-0.5 text-sm font-medium text-[var(--ink-primary)]">
+                    {tracks.length > 0
+                      ? `Đang có ${tracks.length} bài hát được đồng bộ vào trình phát nhạc.`
+                      : 'Chưa tải lên bài hát tùy chỉnh — đang phát giai điệu lưu trữ mặc định.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  sfx.play('filterSelect');
+                  setActiveTab('music');
+                }}
+                className="theme-control inline-flex h-9 shrink-0 items-center gap-1.5 border border-[var(--border-strong)] px-4 text-xs font-semibold whitespace-nowrap text-[var(--ink-primary)] hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+              >
+                <Music className="h-3.5 w-3.5" />
+                <span>Mở Quản lý nhạc</span>
+              </button>
             </div>
 
             {/* Recently Added Characters */}

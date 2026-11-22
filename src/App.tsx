@@ -45,12 +45,14 @@ import {
   syncUserProfileDoc,
   toggleUserFavorite,
 } from './services/archiveService';
+import { subscribeTracks } from './services/musicService';
 import type {
   ArchiveStage,
   AuthModalMode,
   CategoryRecord,
   CharacterRecord,
   GalleryItem,
+  MusicTrack,
   PendingGuestAction,
   SortOption,
   ThemeMode,
@@ -109,6 +111,7 @@ export default function App() {
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>(
     INITIAL_GALLERY_ITEMS
   );
+  const [tracks, setTracks] = useState<MusicTrack[]>([]);
   const [isCharsDbEmpty, setIsCharsDbEmpty] = useState(true);
   const [isCatsDbEmpty, setIsCatsDbEmpty] = useState(true);
   const [isGalleryDbEmpty, setIsGalleryDbEmpty] = useState(true);
@@ -230,12 +233,21 @@ export default function App() {
       setGalleryItems(items);
       setIsGalleryDbEmpty(empty);
     });
+    const unsubTracks = subscribeTracks((dbTracks) => {
+      setTracks(dbTracks);
+    });
     return () => {
       unsubChars();
       unsubCats();
       unsubGallery();
+      unsubTracks();
     };
   }, []);
+
+  // Live-sync Admin-managed tracks into the website's Music Player playlist
+  useEffect(() => {
+    musicPlayer.setPlaylist(tracks);
+  }, [tracks]);
 
   // Subscribe to member personal favorites when verified
   useEffect(() => {
@@ -659,6 +671,7 @@ export default function App() {
               characters={characters}
               categories={categories}
               galleryItems={galleryItems}
+              tracks={tracks}
               isDbEmpty={isDbEmpty}
               initialTab={adminView.tab}
               editingCharacter={adminView.editingChar}

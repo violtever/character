@@ -278,6 +278,129 @@
         }
       },
       "required": ["uid", "grantedBy", "createdAt"]
+    },
+    "Track": {
+      "title": "Track",
+      "description": "An audio track in the archive background music library managed exclusively by admins.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "artist": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "cover": {
+          "type": "string",
+          "maxLength": 250000
+        },
+        "audioType": {
+          "type": "string",
+          "enum": ["chunks", "url"]
+        },
+        "audioUrl": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "audioMimeType": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "audioFileName": {
+          "type": "string",
+          "maxLength": 180
+        },
+        "audioFileSize": {
+          "type": "number"
+        },
+        "audioChunkCount": {
+          "type": "number"
+        },
+        "audioVersion": {
+          "type": "number"
+        },
+        "duration": {
+          "type": "number"
+        },
+        "order": {
+          "type": "number"
+        },
+        "createdBy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "artist",
+        "description",
+        "cover",
+        "audioType",
+        "audioUrl",
+        "audioMimeType",
+        "audioFileName",
+        "audioFileSize",
+        "audioChunkCount",
+        "audioVersion",
+        "duration",
+        "order",
+        "createdBy",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "TrackAudioChunk": {
+      "title": "TrackAudioChunk",
+      "description": "An ordered base64 binary chunk of an admin-uploaded audio file stored under its parent track.",
+      "type": "object",
+      "properties": {
+        "trackId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "chunkIndex": {
+          "type": "number"
+        },
+        "audioVersion": {
+          "type": "number"
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["trackId", "chunkIndex", "audioVersion", "data", "createdAt"]
     }
   },
   "firestore": {
@@ -292,6 +415,14 @@
     "/gallery/{itemId}": {
       "schema": { "$ref": "#/entities/GalleryItem" },
       "description": "Publicly readable independent decorative image gallery; managed by verified admins."
+    },
+    "/tracks/{trackId}": {
+      "schema": { "$ref": "#/entities/Track" },
+      "description": "Publicly readable background music tracks; upload, replace, edit, and delete restricted to verified admins."
+    },
+    "/tracks/{trackId}/audioChunks/{chunkId}": {
+      "schema": { "$ref": "#/entities/TrackAudioChunk" },
+      "description": "Publicly readable ordered audio chunks linked to an existing track; immutable; create/delete restricted to verified admins."
     },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },

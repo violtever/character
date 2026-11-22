@@ -87,12 +87,28 @@ export interface PendingGuestAction {
   characterId: string;
 }
 
+export type RepeatMode = 'all' | 'one' | 'off';
+
+export type TrackAudioType = 'chunks' | 'url' | 'ambient';
+
 export interface MusicTrack {
   id: string;
   title: string;
   artist: string;
+  description?: string;
   src: string;
   cover: string;
   duration: number;
-  ambientPreset: 'porcelain' | 'burgundy' | 'library';
+  ambientPreset?: 'porcelain' | 'burgundy' | 'library';
+  audioType?: TrackAudioType;
+  audioMimeType?: string;
+  audioFileName?: string;
+  audioFileSize?: number;
+  audioChunkCount?: number;
+  audioVersion?: number;
+  order?: number;
+  createdBy?: string;
+  createdAt?: number;
+  updatedAt?: number;
+  isBuiltIn?: boolean;
 }
