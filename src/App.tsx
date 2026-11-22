@@ -658,6 +658,7 @@ export default function App() {
               adminUser={currentUser}
               characters={characters}
               categories={categories}
+              galleryItems={galleryItems}
               isDbEmpty={isDbEmpty}
               initialTab={adminView.tab}
               editingCharacter={adminView.editingChar}

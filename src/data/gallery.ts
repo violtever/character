@@ -1,4 +1,8 @@
 import type { GalleryItem } from '../types/archive';
+import imgOceanWindow from '../assets/images/decor_ocean_window_1795314143372.jpg';
+import imgWineRoses from '../assets/images/decor_wine_roses_1795314143143.jpg';
+import imgEuropeanArch from '../assets/images/decor_european_arch_1795314143278.jpg';
+import imgVintageLibrary from '../assets/images/decor_vintage_library_1795314143503.jpg';
 
 /**
  * ============================================================================
@@ -11,7 +15,7 @@ import type { GalleryItem } from '../types/archive';
 export const INITIAL_GALLERY_ITEMS: GalleryItem[] = [
   {
     id: 'decor-01',
-    image: '/src/assets/images/decor_ocean_window_1795314143372.jpg',
+    image: imgOceanWindow,
     caption: 'Sóng sớm qua khung cửa rèm vải lanh',
     date: 'Tháng 5, 2026',
     category: 'Biển · Phim 35mm',
@@ -19,7 +23,7 @@ export const INITIAL_GALLERY_ITEMS: GalleryItem[] = [
   },
   {
     id: 'decor-02',
-    image: '/src/assets/images/decor_wine_roses_1795314143143.jpg',
+    image: imgWineRoses,
     caption: 'Hoa hồng đỏ rượu vang sau hoàng hôn',
     date: 'Tháng 10, 2026',
     category: 'Hoa · Tĩnh vật',
@@ -27,7 +31,7 @@ export const INITIAL_GALLERY_ITEMS: GalleryItem[] = [
   },
   {
     id: 'decor-03',
-    image: '/src/assets/images/decor_european_arch_1795314143278.jpg',
+    image: imgEuropeanArch,
     caption: 'Hành lang đá cổ trong làn sương xanh sáng sớm',
     date: 'Tháng 11, 2026',
     category: 'Kiến trúc · Film',
@@ -35,7 +39,7 @@ export const INITIAL_GALLERY_ITEMS: GalleryItem[] = [
   },
   {
     id: 'decor-04',
-    image: '/src/assets/images/decor_vintage_library_1795314143503.jpg',
+    image: imgVintageLibrary,
     caption: 'Sổ tay bìa vải, bút máy đồng và cánh hoa trà khô',
     date: 'Tháng 8, 2026',
     category: 'Góc bàn · Lưu giữ',

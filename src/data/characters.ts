@@ -1,4 +1,10 @@
 import type { CategoryRecord, CharacterRecord } from '../types/archive';
+import imgSeraphina from '../assets/images/char_seraphina_velvet_1795314142482.jpg';
+import imgRen from '../assets/images/char_ren_ocean_1795314143246.jpg';
+import imgKaelen from '../assets/images/char_kael_knight_1795314142296.jpg';
+import imgMira from '../assets/images/char_mira_botanist_1795314143041.jpg';
+import imgLucian from '../assets/images/char_lucian_detective_1795314143182.jpg';
+import imgIris from '../assets/images/char_iris_violinist_1795314143309.jpg';
 
 /**
  * ============================================================================
@@ -30,7 +36,7 @@ export const INITIAL_CHARACTERS: CharacterRecord[] = [
   {
     id: 'ARC-001',
     name: 'Seraphina de Valois',
-    image: '/src/assets/images/char_seraphina_velvet_1795314142482.jpg',
+    image: imgSeraphina,
     subtitle: 'Người giữ cuốn sổ chép dang dở',
     genre: 'Fantasy',
     tags: ['Original Character', 'Drama', 'Angst', 'Quý tộc Gothic'],
@@ -46,7 +52,7 @@ export const INITIAL_CHARACTERS: CharacterRecord[] = [
   {
     id: 'ARC-002',
     name: 'Ren Minato',
-    image: '/src/assets/images/char_ren_ocean_1795314143246.jpg',
+    image: imgRen,
     subtitle: 'Những lá thư gửi lại bên đê chắn sóng',
     genre: 'Romance',
     tags: ['Anime', 'Slice of Life', 'Angst', 'Biển mùa đông'],
@@ -62,7 +68,7 @@ export const INITIAL_CHARACTERS: CharacterRecord[] = [
   {
     id: 'ARC-003',
     name: 'Kaelen Veyne',
-    image: '/src/assets/images/char_kael_knight_1795314142296.jpg',
+    image: imgKaelen,
     subtitle: 'Kẻ phá thề nơi hành lang đá xám',
     genre: 'Action',
     tags: ['Game', 'Fantasy', 'Angst', 'Hiệp sĩ lưu vong'],
@@ -78,7 +84,7 @@ export const INITIAL_CHARACTERS: CharacterRecord[] = [
   {
     id: 'ARC-004',
     name: 'Mira Solène',
-    image: '/src/assets/images/char_mira_botanist_1795314143041.jpg',
+    image: imgMira,
     subtitle: 'Nữ dược sĩ của vườn cẩm tú cầu xanh',
     genre: 'Slice of Life',
     tags: ['Original Character', 'Romance', 'Nhà kính', 'Chữa lành'],
@@ -94,7 +100,7 @@ export const INITIAL_CHARACTERS: CharacterRecord[] = [
   {
     id: 'ARC-005',
     name: 'Lucian Hale',
-    image: '/src/assets/images/char_lucian_detective_1795314143182.jpg',
+    image: imgLucian,
     subtitle: 'Điều tra viên của những hồ sơ đêm',
     genre: 'Horror',
     tags: ['Drama', 'Noir', 'Bí ẩn', 'Siêu nhiên'],
@@ -110,7 +116,7 @@ export const INITIAL_CHARACTERS: CharacterRecord[] = [
   {
     id: 'ARC-006',
     name: 'Iris Clairemont',
-    image: '/src/assets/images/char_iris_violinist_1795314143309.jpg',
+    image: imgIris,
     subtitle: 'Nghệ sĩ độc tấu của nhà hát bỏ trống',
     genre: 'Drama',
     tags: ['Romance', 'Angst', 'Original Character', 'Cổ điển'],

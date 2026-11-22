@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Check,
+  Cloud,
   Database,
   Eye,
   FolderKanban,
@@ -33,25 +34,29 @@ import {
 import type {
   CategoryRecord,
   CharacterRecord,
+  GalleryItem,
   ThemeMode,
   UserProfile,
 } from '../types/archive';
 import { compressImageFile } from '../utils/imageCompressor';
 import { sfx } from '../utils/sfxEngine';
 import { BrandWordmark } from './BrandWordmark';
+import { DriveBackupSection } from './DriveBackupSection';
 
 export type AdminTab =
   | 'overview'
   | 'characters'
   | 'form'
   | 'categories'
-  | 'users';
+  | 'users'
+  | 'drive';
 
 interface AdminDashboardProps {
   theme: ThemeMode;
   adminUser: UserProfile;
   characters: CharacterRecord[];
   categories: CategoryRecord[];
+  galleryItems: GalleryItem[];
   isDbEmpty: boolean;
   initialTab?: AdminTab;
   editingCharacter?: CharacterRecord | null;
@@ -65,6 +70,7 @@ export function AdminDashboard({
   adminUser,
   characters,
   categories,
+  galleryItems,
   isDbEmpty,
   initialTab = 'overview',
   editingCharacter = null,
@@ -403,6 +409,7 @@ export function AdminDashboard({
     },
     { id: 'categories', label: 'Quản lý thể loại', icon: Database },
     { id: 'users', label: 'Quản lý tài khoản', icon: Users },
+    { id: 'drive', label: 'Google Drive', icon: Cloud },
   ];
 
   const affectedByDeleteCat = pendingDeleteCat
@@ -504,6 +511,21 @@ export function AdminDashboard({
             );
           })}
         </nav>
+
+        {/* ================================================================
+            GOOGLE DRIVE BACKUP & SYNC TAB
+           ================================================================ */}
+        {activeTab === 'drive' && (
+          <div className="mt-8">
+            <DriveBackupSection
+              adminUid={adminUser.uid}
+              characters={characters}
+              categories={categories}
+              galleryItems={galleryItems}
+              onNotify={onNotify}
+            />
+          </div>
+        )}
 
         {/* ================================================================
             TAB 1: TỔNG QUAN (DASHBOARD)

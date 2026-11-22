@@ -210,6 +210,20 @@ class BackgroundMusicEngine {
     this.emit();
   }
 
+  public setCustomTrack(title: string, artist: string, src: string): void {
+    const customTrack: MusicTrack = {
+      id: `drive-${Date.now()}`,
+      title,
+      artist,
+      src,
+      cover: MUSIC_TRACKS[0]?.cover ?? '',
+      duration: 240,
+      ambientPreset: 'porcelain',
+    };
+    MUSIC_TRACKS.unshift(customTrack);
+    this.selectTrack(0, true);
+  }
+
   public selectTrack(index: number, autoplay?: boolean): void {
     const safeIdx = ((index % MUSIC_TRACKS.length) + MUSIC_TRACKS.length) % MUSIC_TRACKS.length;
     const wasPlaying = autoplay ?? this.isPlaying;

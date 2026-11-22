@@ -1,4 +1,7 @@
 import type { MusicTrack, SfxName } from '../types/archive';
+import coverOceanWindow from '../assets/images/decor_ocean_window_1795314143372.jpg';
+import coverWineRoses from '../assets/images/decor_wine_roses_1795314143143.jpg';
+import coverVintageLibrary from '../assets/images/decor_vintage_library_1795314143503.jpg';
 
 /**
  * ============================================================================
@@ -51,7 +54,7 @@ export const MUSIC_TRACKS: MusicTrack[] = [
     title: 'Nocturne in Porcelain',
     artist: 'Giai điệu lưu trữ · I',
     src: '', // <-- THAY BẰNG FILE MP3/OGG CỦA BẠN, VD: '/audio/track-1.mp3'
-    cover: '/src/assets/images/decor_ocean_window_1795314143372.jpg',
+    cover: coverOceanWindow,
     duration: 216,
     ambientPreset: 'porcelain',
   },
@@ -60,7 +63,7 @@ export const MUSIC_TRACKS: MusicTrack[] = [
     title: 'Velvet Burgundy Waltz',
     artist: 'Giai điệu lưu trữ · II',
     src: '', // <-- THAY BẰNG FILE MP3/OGG CỦA BẠN, VD: '/audio/track-2.mp3'
-    cover: '/src/assets/images/decor_wine_roses_1795314143143.jpg',
+    cover: coverWineRoses,
     duration: 244,
     ambientPreset: 'burgundy',
   },
@@ -69,7 +72,7 @@ export const MUSIC_TRACKS: MusicTrack[] = [
     title: 'Quiet Library Rain',
     artist: 'Giai điệu lưu trữ · III',
     src: '', // <-- THAY BẰNG FILE MP3/OGG CỦA BẠN, VD: '/audio/track-3.mp3'
-    cover: '/src/assets/images/decor_vintage_library_1795314143503.jpg',
+    cover: coverVintageLibrary,
     duration: 198,
     ambientPreset: 'library',
   },
