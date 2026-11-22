@@ -1,13 +1,16 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
+import { useCallback, useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
+  AlertTriangle,
   Cloud,
   Download,
+  FolderOpen,
   HardDrive,
-  RefreshCw,
-  Upload,
+  Loader2,
   Music,
   Play,
+  RefreshCw,
+  Upload,
 } from 'lucide-react';
 import type {
   CategoryRecord,
@@ -15,20 +18,22 @@ import type {
   GalleryItem,
 } from '../types/archive';
 import {
+  DEFAULT_DRIVE_MUSIC_FOLDER_ID,
+  downloadBackupFromDrive,
   driveSignIn,
+  fetchDriveAudioObjectUrl,
   getDriveAccessToken,
   initDriveAuth,
-  listDriveBackups,
   listDriveAudioFiles,
+  listDriveBackups,
   uploadBackupToDrive,
-  downloadBackupFromDrive,
   type DriveFileItem,
 } from '../utils/driveService';
 import { sfx } from '../utils/sfxEngine';
 import { musicPlayer } from '../utils/musicEngine';
 import {
-  seedInitialDatabase,
   saveCharacterAdmin,
+  seedInitialDatabase,
 } from '../services/archiveService';
 
 interface DriveBackupSectionProps {
@@ -51,10 +56,15 @@ export function DriveBackupSection({
   const [loadingAuth, setLoadingAuth] = useState(false);
   const [backups, setBackups] = useState<DriveFileItem[]>([]);
   const [audioFiles, setAudioFiles] = useState<DriveFileItem[]>([]);
+  const [musicScope, setMusicScope] = useState<'folder' | 'all'>('folder');
   const [loadingList, setLoadingList] = useState(false);
   const [loadingAudio, setLoadingAudio] = useState(false);
+  const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [restoringId, setRestoringId] = useState<string | null>(null);
+  const [pendingRestore, setPendingRestore] = useState<DriveFileItem | null>(
+    null
+  );
 
   useEffect(() => {
     const unsub = initDriveAuth(
@@ -70,6 +80,54 @@ export function DriveBackupSection({
     return () => unsub();
   }, []);
 
+  const fetchBackups = useCallback(
+    async (tok: string) => {
+      setLoadingList(true);
+      try {
+        const list = await listDriveBackups(tok);
+        setBackups(list);
+      } catch (err) {
+        onNotify(
+          err instanceof Error
+            ? err.message
+            : 'Không thể tải danh sách sao lưu từ Drive.'
+        );
+      } finally {
+        setLoadingList(false);
+      }
+    },
+    [onNotify]
+  );
+
+  const fetchAudioFiles = useCallback(
+    async (tok: string, scope: 'folder' | 'all') => {
+      setLoadingAudio(true);
+      try {
+        const list = await listDriveAudioFiles(
+          tok,
+          scope === 'folder' ? DEFAULT_DRIVE_MUSIC_FOLDER_ID : undefined
+        );
+        setAudioFiles(list);
+      } catch (err) {
+        onNotify(
+          err instanceof Error
+            ? err.message
+            : 'Không thể tải danh sách tệp nhạc từ Drive.'
+        );
+      } finally {
+        setLoadingAudio(false);
+      }
+    },
+    [onNotify]
+  );
+
+  useEffect(() => {
+    if (token) {
+      void fetchBackups(token);
+      void fetchAudioFiles(token, musicScope);
+    }
+  }, [token, musicScope, fetchBackups, fetchAudioFiles]);
+
   const handleLogin = async () => {
     setLoadingAuth(true);
     try {
@@ -79,8 +137,6 @@ export function DriveBackupSection({
         setUserEmail(res.user.email);
         sfx.play('welcomeClick');
         onNotify('Đã kết nối thành công với Google Drive!');
-        void fetchBackups(res.accessToken);
-        void fetchAudioFiles(res.accessToken);
       }
     } catch (err) {
       onNotify(
@@ -90,41 +146,6 @@ export function DriveBackupSection({
       setLoadingAuth(false);
     }
   };
-
-  const fetchBackups = async (tok: string) => {
-    setLoadingList(true);
-    try {
-      const list = await listDriveBackups(tok);
-      setBackups(list);
-    } catch (err) {
-      onNotify(
-        err instanceof Error
-          ? err.message
-          : 'Không thể tải danh sách sao lưu từ Drive.'
-      );
-    } finally {
-      setLoadingList(false);
-    }
-  };
-
-  const fetchAudioFiles = async (tok: string) => {
-    setLoadingAudio(true);
-    try {
-      const list = await listDriveAudioFiles(tok);
-      setAudioFiles(list);
-    } catch {
-      // Ignore if no audio found
-    } finally {
-      setLoadingAudio(false);
-    }
-  };
-
-  useEffect(() => {
-    if (token) {
-      void fetchBackups(token);
-      void fetchAudioFiles(token);
-    }
-  }, [token]);
 
   const handleBackupToDrive = async () => {
     if (!token) return;
@@ -153,17 +174,15 @@ export function DriveBackupSection({
     }
   };
 
-  const handleRestoreFromDrive = async (fileId: string, fileName: string) => {
-    if (!token) return;
+  const handleConfirmRestoreFromDrive = async () => {
+    if (!token || !pendingRestore) return;
+    const target = pendingRestore;
+    setPendingRestore(null);
+    setRestoringId(target.id);
 
-    const confirmed = window.confirm(
-      `Bạn có chắc chắn muốn khôi phục dữ liệu từ tệp "${fileName}"? Thao tác này sẽ ghi đè hoặc cập nhật cơ sở dữ liệu hiện tại.`
-    );
-    if (!confirmed) return;
-
-    setRestoringId(fileId);
     try {
-      const data = await downloadBackupFromDrive(token, fileId);
+      const raw = await downloadBackupFromDrive(token, target.id);
+      const data = raw as { characters?: CharacterRecord[] };
       if (!data || !Array.isArray(data.characters)) {
         throw new Error('Tệp sao lưu không đúng định dạng dữ liệu.');
       }
@@ -177,7 +196,6 @@ export function DriveBackupSection({
       onNotify(
         `Đã khôi phục thành công ${data.characters.length} nhân vật từ Google Drive!`
       );
-      window.location.reload();
     } catch (err) {
       onNotify(
         err instanceof Error ? err.message : 'Khôi phục từ Google Drive thất bại.'
@@ -187,12 +205,24 @@ export function DriveBackupSection({
     }
   };
 
-  const handlePlayDriveAudio = (file: DriveFileItem) => {
+  const handlePlayDriveAudio = async (file: DriveFileItem) => {
     if (!token) return;
-    const directUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media&access_token=${token}`;
-    musicPlayer.setCustomTrack(file.name, 'Google Drive Audio', directUrl);
-    sfx.play('welcomeClick');
-    onNotify(`Đang phát nhạc nền từ Google Drive: "${file.name}"`);
+    setLoadingAudioId(file.id);
+    try {
+      const objectUrl = await fetchDriveAudioObjectUrl(token, file.id);
+      const cleanTitle = file.name.replace(/\.[^/.]+$/, '');
+      musicPlayer.setCustomTrack(cleanTitle, 'Google Drive', objectUrl);
+      sfx.play('welcomeClick');
+      onNotify(`Đang phát nhạc nền từ Google Drive: "${cleanTitle}"`);
+    } catch (err) {
+      onNotify(
+        err instanceof Error
+          ? err.message
+          : 'Không thể tải tệp âm thanh từ Google Drive.'
+      );
+    } finally {
+      setLoadingAudioId(null);
+    }
   };
 
   if (!token) {
@@ -205,8 +235,9 @@ export function DriveBackupSection({
           Kết nối Google Drive &amp; Nhạc nền đám mây
         </h3>
         <p className="mx-auto mt-2 max-w-md text-sm text-[var(--ink-secondary)]">
-          Kết nối tài khoản Google của bạn để sao lưu cơ sở dữ liệu và chọn trực
-          tiếp các tệp nhạc `.mp3` trên Google Drive làm nhạc nền cho website.
+          Kết nối tài khoản Google của bạn để sao lưu cơ sở dữ liệu và phát trực
+          tiếp các tệp nhạc từ thư mục Google Drive của bạn làm nhạc nền cho
+          website.
         </p>
         <button
           type="button"
@@ -241,7 +272,7 @@ export function DriveBackupSection({
             </svg>
           </div>
           <span>
-            {loadingAuth ? 'Đang kết nối...' : 'Kết nối Google Drive với quyền'}
+            {loadingAuth ? 'Đang kết nối...' : 'Sign in with Google'}
           </span>
         </button>
       </div>
@@ -277,60 +308,95 @@ export function DriveBackupSection({
 
       {/* Google Drive Music Selector */}
       <div className="theme-card border border-[var(--border-hairline)] bg-[var(--bg-surface)] p-6">
-        <div className="flex items-center justify-between border-b border-[var(--border-hairline)] pb-4">
+        <div className="flex flex-col justify-between gap-3 border-b border-[var(--border-hairline)] pb-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-2.5">
-            <Music className="h-5 w-5 text-[var(--accent-primary)]" />
-            <h3 className="font-editorial text-2xl font-semibold">
-              Chọn bài hát / Nhạc nền từ Google Drive
-            </h3>
+            <Music className="h-5 w-5 shrink-0 text-[var(--accent-primary)]" />
+            <div>
+              <h3 className="font-editorial text-2xl font-semibold">
+                Nhạc nền từ Google Drive
+              </h3>
+              <p className="font-mono-archive text-[11px] text-[var(--ink-muted)]">
+                {musicScope === 'folder'
+                  ? `Thư mục đã liên kết (${DEFAULT_DRIVE_MUSIC_FOLDER_ID})`
+                  : 'Tất cả tệp âm thanh trên Google Drive'}
+              </p>
+            </div>
           </div>
-          <button
-            type="button"
-            disabled={loadingAudio}
-            onClick={() => token && fetchAudioFiles(token)}
-            className="theme-control inline-flex h-9 items-center gap-1.5 border border-[var(--border-hairline)] px-3 text-xs text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
-          >
-            <RefreshCw
-              className={`h-3.5 w-3.5 ${loadingAudio ? 'animate-spin' : ''}`}
-            />
-            <span>Làm mới nhạc</span>
-          </button>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                sfx.play('filterSelect');
+                setMusicScope((prev) => (prev === 'folder' ? 'all' : 'folder'));
+              }}
+              className="theme-control inline-flex h-9 items-center gap-1.5 border border-[var(--border-hairline)] px-3 text-xs text-[var(--ink-secondary)] hover:border-[var(--accent-primary)] hover:text-[var(--ink-primary)]"
+            >
+              <FolderOpen className="h-3.5 w-3.5" />
+              <span>
+                {musicScope === 'folder' ? 'Xem toàn bộ Drive' : 'Về thư mục nhạc'}
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled={loadingAudio}
+              onClick={() => token && void fetchAudioFiles(token, musicScope)}
+              className="theme-control inline-flex h-9 items-center gap-1.5 border border-[var(--border-hairline)] px-3 text-xs text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
+            >
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${loadingAudio ? 'animate-spin' : ''}`}
+              />
+              <span>Làm mới nhạc</span>
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 divide-y divide-[var(--border-hairline)]">
-          {audioFiles.map((file) => (
-            <div
-              key={file.id}
-              className="flex flex-col justify-between gap-3 py-3.5 sm:flex-row sm:items-center"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--border-strong)] bg-[var(--accent-soft)] text-[var(--accent-primary)]">
-                  <Music className="h-4 w-4" />
-                </div>
-                <div>
-                  <p className="font-medium text-[var(--ink-primary)]">
-                    {file.name}
-                  </p>
-                  <p className="font-mono-archive text-[11px] text-[var(--ink-muted)]">
-                    ID: {file.id}
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handlePlayDriveAudio(file)}
-                className="theme-control inline-flex h-9 items-center gap-1.5 bg-[var(--accent-primary)] px-4 text-xs font-semibold text-[var(--accent-ink)] hover:bg-[var(--accent-hover)]"
+          {audioFiles.map((file) => {
+            const isLoadingThis = loadingAudioId === file.id;
+            return (
+              <div
+                key={file.id}
+                className="flex flex-col justify-between gap-3 py-3.5 sm:flex-row sm:items-center"
               >
-                <Play className="h-3.5 w-3.5 fill-current" />
-                <span>Phát làm nhạc nền</span>
-              </button>
-            </div>
-          ))}
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--border-strong)] bg-[var(--accent-soft)] text-[var(--accent-primary)]">
+                    <Music className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate font-medium text-[var(--ink-primary)]">
+                      {file.name}
+                    </p>
+                    <p className="font-mono-archive text-[11px] text-[var(--ink-muted)]">
+                      {file.mimeType || 'Tệp âm thanh'}
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isLoadingThis}
+                  onClick={() => void handlePlayDriveAudio(file)}
+                  className="theme-control inline-flex h-9 shrink-0 items-center gap-1.5 bg-[var(--accent-primary)] px-4 text-xs font-semibold text-[var(--accent-ink)] hover:bg-[var(--accent-hover)] disabled:opacity-60"
+                >
+                  {isLoadingThis ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Play className="h-3.5 w-3.5 fill-current" />
+                  )}
+                  <span>
+                    {isLoadingThis ? 'Đang tải nhạc...' : 'Phát làm nhạc nền'}
+                  </span>
+                </button>
+              </div>
+            );
+          })}
 
           {audioFiles.length === 0 && !loadingAudio && (
             <div className="py-8 text-center text-sm text-[var(--ink-muted)]">
-              Không tìm thấy tệp âm thanh nào trong Google Drive của bạn. Bạn có thể tải các bài hát lên thư mục Drive bất kỳ và nhấn "Làm mới nhạc".
+              {musicScope === 'folder'
+                ? 'Chưa tìm thấy tệp âm thanh nào trong thư mục đã liên kết. Bạn có thể chuyển sang "Xem toàn bộ Drive" hoặc tải tệp .mp3/.ogg/.wav vào thư mục này.'
+                : 'Không tìm thấy tệp âm thanh nào trong Google Drive của bạn.'}
             </div>
           )}
         </div>
@@ -345,7 +411,7 @@ export function DriveBackupSection({
           <button
             type="button"
             disabled={loadingList}
-            onClick={() => token && fetchBackups(token)}
+            onClick={() => token && void fetchBackups(token)}
             className="theme-control inline-flex h-9 items-center gap-1.5 border border-[var(--border-hairline)] px-3 text-xs text-[var(--ink-secondary)] hover:text-[var(--ink-primary)]"
           >
             <RefreshCw
@@ -362,7 +428,7 @@ export function DriveBackupSection({
               className="flex flex-col justify-between gap-3 py-3.5 sm:flex-row sm:items-center"
             >
               <div className="flex items-center gap-3">
-                <HardDrive className="h-5 w-5 text-[var(--accent-primary)] shrink-0" />
+                <HardDrive className="h-5 w-5 shrink-0 text-[var(--accent-primary)]" />
                 <div>
                   <p className="font-medium text-[var(--ink-primary)]">
                     {file.name}
@@ -377,7 +443,10 @@ export function DriveBackupSection({
               <button
                 type="button"
                 disabled={restoringId === file.id}
-                onClick={() => handleRestoreFromDrive(file.id, file.name)}
+                onClick={() => {
+                  sfx.play('filterSelect');
+                  setPendingRestore(file);
+                }}
                 className="theme-control inline-flex h-10 items-center gap-1.5 border border-[var(--border-strong)] px-4 text-xs font-medium text-[var(--ink-primary)] hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)] disabled:opacity-60"
               >
                 <Download className="h-3.5 w-3.5" />
@@ -392,12 +461,65 @@ export function DriveBackupSection({
 
           {backups.length === 0 && !loadingList && (
             <div className="py-10 text-center text-sm text-[var(--ink-muted)]">
-              Chưa có bản sao lưu nào trên Google Drive. Hãy nhấn "Sao lưu ngay
-              lên Drive" phía trên!
+              Chưa có bản sao lưu nào trên Google Drive. Hãy nhấn “Sao lưu ngay
+              lên Drive” phía trên!
             </div>
           )}
         </div>
       </div>
+
+      {/* Custom In-App Confirmation Dialog for Destructive Restore */}
+      <AnimatePresence>
+        {pendingRestore && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setPendingRestore(null)}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--scrim-base)] p-4 backdrop-blur-md"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.97 }}
+              onClick={(e) => e.stopPropagation()}
+              className="theme-surface theme-panel w-full max-w-md border border-[var(--border-strong)] bg-[var(--bg-surface)] p-6 shadow-2xl"
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+                <div>
+                  <h3 className="font-editorial text-2xl font-semibold">
+                    Xác nhận khôi phục dữ liệu?
+                  </h3>
+                  <p className="mt-2 text-sm leading-relaxed text-[var(--ink-secondary)]">
+                    Bạn sắp khôi phục danh sách nhân vật từ bản sao lưu{' '}
+                    <strong>{pendingRestore.name}</strong> trên Google Drive.
+                    Các hồ sơ trùng mã sẽ được cập nhật lại theo bản sao lưu này.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-6 flex justify-end gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setPendingRestore(null)}
+                  className="theme-control h-10 border border-[var(--border-hairline)] px-4 text-xs font-medium text-[var(--ink-secondary)]"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleConfirmRestoreFromDrive()}
+                  className="theme-control h-10 bg-[var(--accent-primary)] px-5 text-xs font-semibold text-[var(--accent-ink)] hover:bg-[var(--accent-hover)]"
+                >
+                  Xác nhận khôi phục
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

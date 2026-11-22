@@ -5,7 +5,11 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
 
-export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+const FIRESTORE_DATABASE_ID =
+  firebaseConfig.firestoreDatabaseId ||
+  'ai-studio-characterarchive-cc83a8a8-b1b9-4c7a-8fa2-359b0d01f130';
+
+export const db = getFirestore(app, FIRESTORE_DATABASE_ID);
 export const auth = getAuth(app);
 export const googleAuthProvider = new GoogleAuthProvider();
 googleAuthProvider.setCustomParameters({ prompt: 'select_account' });
