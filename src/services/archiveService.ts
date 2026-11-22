@@ -14,7 +14,9 @@ import {
   where,
   writeBatch,
 } from 'firebase/firestore';
+import { updateProfile } from 'firebase/auth';
 import {
+  auth,
   BOOTSTRAPPED_ADMIN_EMAIL,
   db,
   handleFirestoreError,
@@ -307,7 +309,7 @@ export async function syncUserProfileDoc(params: {
           updatedAt: serverTimestamp(),
         });
       }
-      return {
+      const resolvedProfile: UserProfile = {
         uid: params.uid,
         displayName:
           typeof data.displayName === 'string'
@@ -327,6 +329,8 @@ export async function syncUserProfileDoc(params: {
         createdAt: toMillis(data.createdAt),
         updatedAt: toMillis(data.updatedAt),
       };
+      await ensurePublicProfileSynced(resolvedProfile);
+      return resolvedProfile;
     }
 
     // Create new profile document with guaranteed safe username
@@ -355,7 +359,7 @@ export async function syncUserProfileDoc(params: {
       updatedAt: serverTimestamp(),
     };
     if (params.photoURL) {
-      profilePayload.photoURL = params.photoURL.slice(0, 1000);
+      profilePayload.photoURL = params.photoURL.slice(0, 250000);
     }
 
     await setDoc(userRef, profilePayload);
@@ -370,7 +374,7 @@ export async function syncUserProfileDoc(params: {
       // Non-fatal if username reservation collides concurrently
     }
 
-    return {
+    const createdProfile: UserProfile = {
       uid: params.uid,
       displayName: String(profilePayload.displayName),
       username: finalUsername,
@@ -381,8 +385,130 @@ export async function syncUserProfileDoc(params: {
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
+    await ensurePublicProfileSynced(createdProfile);
+    return createdProfile;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, userPath);
+  }
+}
+
+async function ensurePublicProfileSynced(profile: UserProfile): Promise<void> {
+  const pubRef = doc(db, 'publicProfiles', profile.uid);
+  try {
+    const snap = await getDoc(pubRef);
+    const safeName = profile.displayName.trim().slice(0, 80) || profile.username;
+    const safePhoto = (profile.photoURL || '').slice(0, 250000);
+    if (!snap.exists()) {
+      await setDoc(pubRef, {
+        uid: profile.uid,
+        displayName: safeName,
+        username: profile.username,
+        photoURL: safePhoto,
+        role: profile.role,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      const existing = snap.data();
+      const needsSync =
+        existing.displayName !== safeName ||
+        (existing.photoURL || '') !== safePhoto ||
+        (profile.role === 'admin' && existing.role !== 'admin');
+      if (needsSync) {
+        const updateData: Record<string, unknown> = {
+          displayName: safeName,
+          photoURL: safePhoto,
+          updatedAt: serverTimestamp(),
+        };
+        if (profile.role === 'admin' && existing.role !== 'admin') {
+          updateData.role = 'admin';
+        }
+        await updateDoc(pubRef, updateData);
+      }
+    }
+  } catch {
+    // Non-fatal sync error; user can still continue normally
+  }
+}
+
+/**
+ * Allows the currently authenticated & verified user to update ONLY their own
+ * displayName and avatar photoURL. Username, email, and role remain locked.
+ */
+export async function updateOwnProfile(params: {
+  user: UserProfile;
+  displayName: string;
+  photoURL: string;
+}): Promise<UserProfile> {
+  const cleanName = params.displayName.trim().slice(0, 80);
+  const cleanPhoto = params.photoURL.trim();
+
+  if (!cleanName) {
+    throw new Error('Vui lòng nhập tên hiển thị.');
+  }
+  if (cleanPhoto.length > 250000) {
+    throw new Error('Ảnh đại diện vượt quá dung lượng cho phép.');
+  }
+
+  const fbUser = auth.currentUser;
+  if (!fbUser || fbUser.uid !== params.user.uid) {
+    throw new Error('Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.');
+  }
+  if (!fbUser.emailVerified) {
+    throw new Error('Vui lòng xác minh email trước khi chỉnh sửa hồ sơ.');
+  }
+
+  const userPath = `users/${params.user.uid}`;
+  try {
+    await updateDoc(doc(db, 'users', params.user.uid), {
+      displayName: cleanName,
+      photoURL: cleanPhoto,
+      updatedAt: serverTimestamp(),
+    });
+
+    const pubRef = doc(db, 'publicProfiles', params.user.uid);
+    const pubSnap = await getDoc(pubRef);
+    if (pubSnap.exists()) {
+      await updateDoc(pubRef, {
+        displayName: cleanName,
+        photoURL: cleanPhoto,
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await setDoc(pubRef, {
+        uid: params.user.uid,
+        displayName: cleanName,
+        username: params.user.username,
+        photoURL: cleanPhoto,
+        role: params.user.role,
+        updatedAt: serverTimestamp(),
+      });
+    }
+
+    try {
+      const authUpdate: { displayName: string; photoURL?: string | null } = {
+        displayName: cleanName,
+      };
+      if (cleanPhoto === '') {
+        authUpdate.photoURL = '';
+      } else if (
+        (cleanPhoto.startsWith('https://') || cleanPhoto.startsWith('http://')) &&
+        cleanPhoto.length <= 1000
+      ) {
+        authUpdate.photoURL = cleanPhoto;
+      }
+      await updateProfile(fbUser, authUpdate);
+    } catch {
+      // Non-fatal Firebase Auth display mirror error
+    }
+
+    return {
+      ...params.user,
+      displayName: cleanName,
+      photoURL: cleanPhoto,
+      updatedAt: Date.now(),
+    };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, userPath);
   }
 }
 
@@ -681,6 +807,18 @@ export async function setUserRoleAdmin(
       role: nextRole,
       updatedAt: serverTimestamp(),
     });
+    try {
+      const pubRef = doc(db, 'publicProfiles', targetUid);
+      const pubSnap = await getDoc(pubRef);
+      if (pubSnap.exists()) {
+        await updateDoc(pubRef, {
+          role: nextRole,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    } catch {
+      // Non-fatal if user has not created a publicProfile yet
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, userPath);
   }

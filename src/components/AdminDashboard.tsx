@@ -617,7 +617,7 @@ export function AdminDashboard({
                   <p className="mt-0.5 text-sm font-medium text-[var(--ink-primary)]">
                     {tracks.length > 0
                       ? `Đang có ${tracks.length} bài hát được đồng bộ vào trình phát nhạc.`
-                      : 'Chưa tải lên bài hát tùy chỉnh — đang phát giai điệu lưu trữ mặc định.'}
+                      : 'Hiện chưa có bài hát nào trong danh sách phát.'}
                   </p>
                 </div>
               </div>

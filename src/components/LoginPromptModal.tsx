@@ -6,6 +6,7 @@ import { sfx } from '../utils/sfxEngine';
 
 interface LoginPromptModalProps {
   theme: ThemeMode;
+  reason?: string;
   onOpenLogin: () => void;
   onOpenRegister: () => void;
   onClose: () => void;
@@ -13,6 +14,7 @@ interface LoginPromptModalProps {
 
 export function LoginPromptModal({
   theme,
+  reason,
   onOpenLogin,
   onOpenRegister,
   onClose,
@@ -78,7 +80,8 @@ export function LoginPromptModal({
         </h2>
 
         <p className="mt-2.5 text-sm leading-relaxed text-[var(--ink-secondary)]">
-          Hãy đăng nhập hoặc tạo tài khoản để tiếp tục nhé.
+          {reason ||
+            'Hãy đăng nhập hoặc tạo tài khoản để tiếp tục. Sau khi đăng nhập, bạn sẽ quay lại đúng trang đang xem.'}
         </p>
 
         <div className="mt-7 grid grid-cols-2 gap-3">

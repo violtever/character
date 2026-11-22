@@ -140,9 +140,80 @@ service cloud.firestore {
         isValidUsername(data.username) &&
         data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
         data.role is string && data.role in ['user', 'admin'] &&
-        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
+        (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 250000)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
+    }
+
+    function isValidPublicProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'username', 'photoURL', 'role', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'username', 'photoURL', 'role', 'updatedAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        isValidUsername(data.username) &&
+        data.photoURL is string && data.photoURL.size() <= 250000 &&
+        data.role is string && data.role in ['user', 'admin'] &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidForumPost(data) {
+      return data.keys().hasAll([
+          'id', 'authorId', 'authorRole', 'authorName', 'authorUsername', 'authorPhotoURL',
+          'title', 'content', 'image', 'isPinned', 'pinnedAt', 'pinOrder', 'isFeatured',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'authorId', 'authorRole', 'authorName', 'authorUsername', 'authorPhotoURL',
+          'title', 'content', 'image', 'isPinned', 'pinnedAt', 'pinOrder', 'isFeatured',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+        data.authorRole is string && data.authorRole in ['user', 'admin'] &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+        data.authorUsername is string && data.authorUsername.size() >= 1 && data.authorUsername.size() <= 32 &&
+        data.authorPhotoURL is string && data.authorPhotoURL.size() <= 250000 &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 160 &&
+        data.content is string && data.content.size() >= 1 && data.content.size() <= 10000 &&
+        data.image is string && data.image.size() <= 250000 &&
+        data.isPinned is bool &&
+        data.pinnedAt is number && data.pinnedAt >= 0 &&
+        data.pinOrder is number && data.pinOrder >= 0 && data.pinOrder <= 9999 &&
+        data.isFeatured is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidForumComment(data) {
+      return data.keys().hasAll([
+          'id', 'postId', 'parentCommentId', 'authorId', 'authorRole',
+          'authorName', 'authorUsername', 'authorPhotoURL', 'content',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'postId', 'parentCommentId', 'authorId', 'authorRole',
+          'authorName', 'authorUsername', 'authorPhotoURL', 'content',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.postId is string && data.postId.size() >= 1 && data.postId.size() <= 64 && data.postId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.parentCommentId is string && data.parentCommentId.size() <= 64 &&
+        data.authorId is string && data.authorId.size() >= 1 && data.authorId.size() <= 128 &&
+        data.authorRole is string && data.authorRole in ['user', 'admin'] &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+        data.authorUsername is string && data.authorUsername.size() >= 1 && data.authorUsername.size() <= 32 &&
+        data.authorPhotoURL is string && data.authorPhotoURL.size() <= 250000 &&
+        data.content is string && data.content.size() >= 1 && data.content.size() <= 3000 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidForumLike(data) {
+      return data.keys().hasAll(['postId', 'userId', 'createdAt']) &&
+        data.keys().hasOnly(['postId', 'userId', 'createdAt']) &&
+        data.postId is string && data.postId.size() >= 1 && data.postId.size() <= 64 && data.postId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+        data.createdAt is timestamp;
     }
 
     function isValidFavorite(data) {
@@ -256,7 +327,6 @@ service cloud.firestore {
         isAdmin();
       allow delete: if isValidId(trackId) && isAdmin();
 
-      // Master Gate for immutable audio binary chunks
       match /audioChunks/{chunkId} {
         allow get: if isValidId(trackId) && isValidId(chunkId);
         allow list: if isValidId(trackId) && resource.data.trackId == trackId;
@@ -272,7 +342,7 @@ service cloud.firestore {
       }
     }
 
-    // 5. PII-Isolated User Profiles
+    // 5. PII-Isolated User Profiles (email private; username/email/role immutable for regular users)
     match /users/{userId} {
       allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
       allow list: if isAdmin();
@@ -286,17 +356,18 @@ service cloud.firestore {
       allow update: if isValidId(userId) &&
         isValidUserProfile(incoming()) &&
         incoming().uid == existing().uid &&
+        incoming().email == existing().email &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time && (
           (isOwner(userId) &&
             incoming().role == existing().role &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'username', 'photoURL', 'updatedAt'])) ||
+            incoming().username == existing().username &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt'])) ||
           (isAdmin() &&
-            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'username', 'photoURL', 'role', 'updatedAt']))
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'role', 'updatedAt']))
         );
       allow delete: if isValidId(userId) && isAdmin();
 
-      // Personal User Favorites Subcollection (Master Gate)
       match /favorites/{characterId} {
         allow get: if isValidId(userId) && isValidId(characterId) && isOwner(userId);
         allow list: if isValidId(userId) && isOwner(userId) && resource.data.userId == request.auth.uid;
@@ -313,7 +384,123 @@ service cloud.firestore {
       }
     }
 
-    // 6. Non-PII Username Uniqueness Reservations
+    // 6. Non-PII Public Display Profiles (live avatar, displayName & verified role for Forum/Comments)
+    match /publicProfiles/{userId} {
+      allow get: if isValidId(userId);
+      allow list: if true;
+      allow create: if isValidId(userId) &&
+        isValidPublicProfile(incoming()) &&
+        incoming().uid == userId &&
+        incoming().updatedAt == request.time &&
+        isOwner(userId) &&
+        (incoming().role == 'user' || (incoming().role == 'admin' && isAdmin()));
+      allow update: if isValidId(userId) &&
+        isValidPublicProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().updatedAt == request.time && (
+          (isOwner(userId) &&
+            incoming().role == existing().role &&
+            incoming().username == existing().username &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'updatedAt'])) ||
+          (isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'role', 'updatedAt']))
+        );
+      allow delete: if isValidId(userId) && isAdmin();
+    }
+
+    // 7. Public Forum: Posts (Guest read; User own CRUD; Admin pin/feature/moderate)
+    match /forumPosts/{postId} {
+      allow get: if isValidId(postId);
+      allow list: if true;
+      allow create: if isValidId(postId) &&
+        isVerified() &&
+        isValidForumPost(incoming()) &&
+        incoming().id == postId &&
+        incoming().authorId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (incoming().authorRole == 'user' || (incoming().authorRole == 'admin' && isAdmin())) &&
+        (incoming().isPinned == false || isAdmin()) &&
+        (incoming().pinnedAt == 0 || isAdmin()) &&
+        (incoming().pinOrder == 0 || isAdmin()) &&
+        (incoming().isFeatured == false || isAdmin());
+      allow update: if isValidId(postId) &&
+        isVerified() &&
+        isValidForumPost(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().authorId == existing().authorId &&
+        incoming().authorRole == existing().authorRole &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time && (
+          (existing().authorId == request.auth.uid &&
+            incoming().isPinned == existing().isPinned &&
+            incoming().pinnedAt == existing().pinnedAt &&
+            incoming().pinOrder == existing().pinOrder &&
+            incoming().isFeatured == existing().isFeatured &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'content', 'image', 'authorName', 'authorPhotoURL', 'updatedAt'
+            ])) ||
+          (isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'title', 'content', 'image', 'isPinned', 'pinnedAt', 'pinOrder',
+              'isFeatured', 'authorName', 'authorPhotoURL', 'updatedAt'
+            ]))
+        );
+      allow delete: if isValidId(postId) && isVerified() && (
+        existing().authorId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // 8. Public Forum: Comments & Replies (Guest read; User own CRUD; Admin delete)
+    match /forumComments/{commentId} {
+      allow get: if isValidId(commentId);
+      allow list: if true;
+      allow create: if isValidId(commentId) &&
+        isVerified() &&
+        isValidForumComment(incoming()) &&
+        incoming().id == commentId &&
+        incoming().authorId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (incoming().authorRole == 'user' || (incoming().authorRole == 'admin' && isAdmin())) &&
+        exists(/databases/$(database)/documents/forumPosts/$(incoming().postId));
+      allow update: if isValidId(commentId) &&
+        isVerified() &&
+        isValidForumComment(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().postId == existing().postId &&
+        incoming().parentCommentId == existing().parentCommentId &&
+        incoming().authorId == existing().authorId &&
+        incoming().authorRole == existing().authorRole &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        existing().authorId == request.auth.uid &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'content', 'authorName', 'authorPhotoURL', 'updatedAt'
+        ]);
+      allow delete: if isValidId(commentId) && isVerified() && (
+        existing().authorId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // 9. Public Forum: Post Likes (1 per user per post, immutable)
+    match /forumLikes/{likeId} {
+      allow get: if isValidId(likeId);
+      allow list: if true;
+      allow create: if isValidId(likeId) &&
+        isVerified() &&
+        isValidForumLike(incoming()) &&
+        incoming().userId == request.auth.uid &&
+        likeId == (incoming().postId + '_' + request.auth.uid) &&
+        incoming().createdAt == request.time &&
+        exists(/databases/$(database)/documents/forumPosts/$(incoming().postId));
+      allow update: if false;
+      allow delete: if isValidId(likeId) && isVerified() && (
+        existing().userId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // 10. Non-PII Username Uniqueness Reservations
     match /usernames/{username} {
       allow get: if isValidUsername(username);
       allow list: if false;
@@ -329,7 +516,7 @@ service cloud.firestore {
       );
     }
 
-    // 7. Trusted Admin Allowlist
+    // 11. Trusted Admin Allowlist
     match /admins/{adminUid} {
       allow get: if isValidId(adminUid) && (isOwner(adminUid) || isAdmin());
       allow list: if isAdmin();
@@ -343,7 +530,7 @@ service cloud.firestore {
       allow delete: if isValidId(adminUid) && isAdmin() && adminUid != request.auth.uid;
     }
 
-    // 8. Startup Connection Probe
+    // 12. Startup Connection Probe
     match /test/{docId} {
       allow get: if docId == 'connection';
       allow list, write: if false;

@@ -13,6 +13,7 @@ import {
   LogIn,
   LogOut,
   MailCheck,
+  MessageSquare,
   Moon,
   RefreshCw,
   RotateCcw,
@@ -20,6 +21,7 @@ import {
   Shield,
   SlidersHorizontal,
   Sun,
+  User,
   UserPlus,
   Volume2,
   VolumeX,
@@ -45,15 +47,27 @@ import {
   syncUserProfileDoc,
   toggleUserFavorite,
 } from './services/archiveService';
+import {
+  subscribeForumComments,
+  subscribeForumLikes,
+  subscribeForumPosts,
+  subscribePublicProfiles,
+  toggleForumLike,
+} from './services/forumService';
 import { subscribeTracks } from './services/musicService';
 import type {
+  AppSection,
   ArchiveStage,
   AuthModalMode,
   CategoryRecord,
   CharacterRecord,
+  ForumComment,
+  ForumLike,
+  ForumPost,
   GalleryItem,
   MusicTrack,
   PendingGuestAction,
+  PublicUserProfile,
   SortOption,
   ThemeMode,
   UserProfile,
@@ -66,9 +80,11 @@ import { BrandWordmark } from './components/BrandWordmark';
 import { CharacterCard } from './components/CharacterCard';
 import { CharacterDetailModal } from './components/CharacterDetailModal';
 import { DecorGallery } from './components/DecorGallery';
+import { ForumSection } from './components/ForumSection';
 import { LoadingScreen } from './components/LoadingScreen';
 import { LoginPromptModal } from './components/LoginPromptModal';
 import { MusicPlayer } from './components/MusicPlayer';
+import { ProfileSettingsView } from './components/ProfileSettingsView';
 import {
   FloatingDreamyStickers,
   ThemeDivider,
@@ -96,11 +112,16 @@ export default function App() {
   );
 
   // Real Firebase Auth + Firestore Profile State
+  const [authReady, setAuthReady] = useState(false);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [favoriteIds, setFavoriteIds] = useState<string[]>([]);
   const pendingUsernameRef = useRef<string | undefined>(undefined);
   const [resendingVerify, setResendingVerify] = useState(false);
   const [checkingVerify, setCheckingVerify] = useState(false);
+
+  // Main section navigation (Library Archive, Forum, or My Profile)
+  const [activeSection, setActiveSection] = useState<AppSection>('archive');
+  const previousSectionRef = useRef<'archive' | 'forum'>('archive');
 
   // Live Firestore Archive Collections (Public Read)
   const [characters, setCharacters] =
@@ -115,6 +136,19 @@ export default function App() {
   const [isCharsDbEmpty, setIsCharsDbEmpty] = useState(true);
   const [isCatsDbEmpty, setIsCatsDbEmpty] = useState(true);
   const [isGalleryDbEmpty, setIsGalleryDbEmpty] = useState(true);
+
+  // Live Firestore Forum & Public Profile Collections
+  const [publicProfiles, setPublicProfiles] = useState<
+    Record<string, PublicUserProfile>
+  >({});
+  const [forumPosts, setForumPosts] = useState<ForumPost[]>([]);
+  const [forumComments, setForumComments] = useState<ForumComment[]>([]);
+  const [forumLikes, setForumLikes] = useState<ForumLike[]>([]);
+  const [forumLoading, setForumLoading] = useState(true);
+  const [selectedForumPostId, setSelectedForumPostId] = useState<string | null>(
+    null
+  );
+  const [forumComposerOpen, setForumComposerOpen] = useState(false);
 
   const isDbEmpty = isCharsDbEmpty || isCatsDbEmpty || isGalleryDbEmpty;
   const isAdmin = Boolean(
@@ -181,7 +215,7 @@ export default function App() {
     return musicPlayer.subscribe(setMusicSnapshot);
   }, []);
 
-  // Subscribe to Firebase Auth state
+  // Subscribe to real Firebase Auth session immediately on page load
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (!fbUser) {
@@ -189,6 +223,8 @@ export default function App() {
         setFavoriteIds([]);
         setFavoritesOnly(false);
         setAdminView({ open: false, tab: 'overview', editingChar: null });
+        setActiveSection((prev) => (prev === 'profile' ? 'archive' : prev));
+        setAuthReady(true);
         return;
       }
 
@@ -214,10 +250,19 @@ export default function App() {
           photoURL: fbUser.photoURL || '',
           emailVerified: fbUser.emailVerified,
         });
+      } finally {
+        setAuthReady(true);
       }
     });
     return unsubscribe;
   }, []);
+
+  // Never leave login/register modals open once a real session is active
+  useEffect(() => {
+    if (!currentUser) return;
+    setAuthModal((prev) => (prev.open ? { ...prev, open: false } : prev));
+    setLoginPromptOpen(false);
+  }, [currentUser]);
 
   // Subscribe to public Firestore collections (accessible to Guests, Users & Admins)
   useEffect(() => {
@@ -236,11 +281,28 @@ export default function App() {
     const unsubTracks = subscribeTracks((dbTracks) => {
       setTracks(dbTracks);
     });
+    const unsubPublicProfiles = subscribePublicProfiles((profiles) => {
+      setPublicProfiles(profiles);
+    });
+    const unsubForumPosts = subscribeForumPosts((posts) => {
+      setForumPosts(posts);
+      setForumLoading(false);
+    });
+    const unsubForumComments = subscribeForumComments((comments) => {
+      setForumComments(comments);
+    });
+    const unsubForumLikes = subscribeForumLikes((likes) => {
+      setForumLikes(likes);
+    });
     return () => {
       unsubChars();
       unsubCats();
       unsubGallery();
       unsubTracks();
+      unsubPublicProfiles();
+      unsubForumPosts();
+      unsubForumComments();
+      unsubForumLikes();
     };
   }, []);
 
@@ -248,6 +310,26 @@ export default function App() {
   useEffect(() => {
     musicPlayer.setPlaylist(tracks);
   }, [tracks]);
+
+  // Automatically start playing real playlist music when reaching the loading screen
+  const autoPlayTriggeredForLoadingRef = useRef(false);
+  useEffect(() => {
+    if (stage === 'welcome') {
+      autoPlayTriggeredForLoadingRef.current = false;
+      return;
+    }
+    if (
+      stage === 'loading' &&
+      !autoPlayTriggeredForLoadingRef.current &&
+      tracks.length > 0
+    ) {
+      autoPlayTriggeredForLoadingRef.current = true;
+      const snap = musicPlayer.getSnapshot();
+      if (!snap.isPlaying && !snap.isLoadingTrack) {
+        void musicPlayer.play();
+      }
+    }
+  }, [stage, tracks]);
 
   // Subscribe to member personal favorites when verified
   useEffect(() => {
@@ -326,6 +408,27 @@ export default function App() {
     [characters, favoriteIds, isCharsDbEmpty, showToast]
   );
 
+  const executeForumLikeToggle = useCallback(
+    async (user: UserProfile, postId: string) => {
+      if (!user.emailVerified) {
+        showToast(
+          'Vui lòng xác minh địa chỉ email của bạn trước khi thích bài viết.'
+        );
+        return;
+      }
+
+      const alreadyLiked = forumLikes.some(
+        (like) => like.postId === postId && like.userId === user.uid
+      );
+      try {
+        await toggleForumLike(postId, user.uid, alreadyLiked);
+      } catch {
+        showToast('Không thể cập nhật lượt thích lúc này. Vui lòng thử lại.');
+      }
+    },
+    [forumLikes, showToast]
+  );
+
   // Resume pending Guest action automatically right after login without losing UI state
   useEffect(() => {
     if (
@@ -337,10 +440,23 @@ export default function App() {
     }
     const action = pendingGuestAction;
     setPendingGuestAction(null);
-    if (action.type === 'favorite') {
+    if (action.type === 'favorite' && action.characterId) {
       void executeFavoriteToggle(currentUser, action.characterId);
+    } else if (action.type === 'forum_like' && action.postId) {
+      void executeForumLikeToggle(currentUser, action.postId);
+    } else if (action.type === 'forum_compose') {
+      setActiveSection('forum');
+      setForumComposerOpen(true);
+    } else if (action.type === 'forum_comment' && action.postId) {
+      setActiveSection('forum');
+      setSelectedForumPostId(action.postId);
     }
-  }, [pendingGuestAction, currentUser, executeFavoriteToggle]);
+  }, [
+    pendingGuestAction,
+    currentUser,
+    executeFavoriteToggle,
+    executeForumLikeToggle,
+  ]);
 
   const handleToggleFavorite = useCallback(
     (characterId: string) => {
@@ -352,6 +468,56 @@ export default function App() {
       void executeFavoriteToggle(currentUser, characterId);
     },
     [currentUser, executeFavoriteToggle]
+  );
+
+  const handleToggleForumLike = useCallback(
+    (postId: string) => {
+      if (!currentUser) {
+        setPendingGuestAction({ type: 'forum_like', postId });
+        setLoginPromptOpen(true);
+        return;
+      }
+      void executeForumLikeToggle(currentUser, postId);
+    },
+    [currentUser, executeForumLikeToggle]
+  );
+
+  const handleRequireForumLogin = useCallback(
+    (action: {
+      type: 'forum_like' | 'forum_compose' | 'forum_comment';
+      postId?: string;
+    }) => {
+      if (action.type === 'forum_compose') {
+        setPendingGuestAction({ type: 'forum_compose' });
+      } else if (action.type === 'forum_like' && action.postId) {
+        setPendingGuestAction({ type: 'forum_like', postId: action.postId });
+      } else if (action.type === 'forum_comment' && action.postId) {
+        setPendingGuestAction({ type: 'forum_comment', postId: action.postId });
+      }
+      setLoginPromptOpen(true);
+    },
+    []
+  );
+
+  const handleNavigateSection = useCallback(
+    (section: AppSection, anchorId?: string) => {
+      sfx.play('filterSelect');
+      setAccountMenuOpen(false);
+      if (section === 'archive' || section === 'forum') {
+        previousSectionRef.current = section;
+      }
+      setActiveSection(section);
+      if (section === 'archive' && anchorId) {
+        window.setTimeout(() => {
+          document
+            .getElementById(anchorId)
+            ?.scrollIntoView({ behavior: 'smooth' });
+        }, 60);
+      } else {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    },
+    []
   );
 
   const handleToggleTheme = useCallback(() => {
@@ -371,7 +537,7 @@ export default function App() {
   }, [sfxEnabled]);
 
   const handleEnterArchive = useCallback(() => {
-    void musicPlayer.play();
+    // Never autoplay placeholder or unrequested music on enter
     setStage('loading');
   }, []);
 
@@ -638,13 +804,9 @@ export default function App() {
             sfxEnabled={sfxEnabled}
             onToggleSfx={handleToggleSfx}
             recordCount={characters.length}
+            authReady={authReady}
             currentUser={currentUser}
             onEnter={handleEnterArchive}
-            onOpenLogin={() => setAuthModal({ open: true, mode: 'login' })}
-            onOpenRegister={() =>
-              setAuthModal({ open: true, mode: 'register' })
-            }
-            onEnterAdmin={() => openAdminCenter('overview', null)}
           />
         )}
 
@@ -701,14 +863,13 @@ export default function App() {
                 TOP HEADER BAR (Brand + Nav + Role-Aware Account Zone)
                =============================================================== */}
             <header className="theme-surface relative z-30 border-b border-[var(--border-hairline)] bg-[var(--bg-canvas)]/90 backdrop-blur-md md:sticky md:top-0">
-              <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5 sm:px-8">
+              <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-3 px-4 sm:px-8">
                 {/* Zone 1: Brand Wordmark */}
                 <a
                   href="#top"
                   onClick={(e) => {
                     e.preventDefault();
-                    sfx.play('filterSelect');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    handleNavigateSection('archive');
                   }}
                   className="shrink-0 whitespace-nowrap transition-opacity hover:opacity-85"
                 >
@@ -718,34 +879,101 @@ export default function App() {
                 {/* Zone 2: Clean single-line Vietnamese Navigation */}
                 <nav
                   aria-label="Điều hướng chính"
-                  className="hidden items-center gap-7 text-sm font-medium text-[var(--ink-secondary)] md:flex"
+                  className="hidden items-center gap-6 text-sm font-medium text-[var(--ink-secondary)] md:flex"
                 >
-                  <a
-                    href="#collection"
+                  <button
+                    type="button"
+                    onClick={() => handleNavigateSection('archive', 'collection')}
                     onMouseEnter={() => sfx.play('hover')}
-                    className="shrink-0 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] hover:underline hover:underline-offset-8"
+                    className={`shrink-0 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] ${
+                      activeSection === 'archive'
+                        ? 'font-semibold text-[var(--accent-primary)] underline underline-offset-8'
+                        : 'hover:underline hover:underline-offset-8'
+                    }`}
                   >
                     Thư viện
-                  </a>
-                  <a
-                    href="#gallery"
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigateSection('forum')}
+                    onMouseEnter={() => sfx.play('hover')}
+                    className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] ${
+                      activeSection === 'forum'
+                        ? 'font-semibold text-[var(--accent-primary)] underline underline-offset-8'
+                        : 'hover:underline hover:underline-offset-8'
+                    }`}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    <span>Diễn đàn</span>
+                    {forumPosts.length > 0 && (
+                      <span className="font-mono-archive text-[11px] text-[var(--ink-muted)]">
+                        ({forumPosts.length})
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigateSection('archive', 'gallery')}
                     onMouseEnter={() => sfx.play('hover')}
                     className="shrink-0 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] hover:underline hover:underline-offset-8"
                   >
                     Góc ảnh
-                  </a>
-                  <a
-                    href="#notes"
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleNavigateSection('archive', 'notes')}
                     onMouseEnter={() => sfx.play('hover')}
                     className="shrink-0 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] hover:underline hover:underline-offset-8"
                   >
                     Ghi chú
-                  </a>
+                  </button>
                 </nav>
 
-                {/* Zone 3: Role-Aware Account Controls */}
+                {/* Zone 3: Quick Theme/SFX (when outside Archive workspace) + Role-Aware Account Controls */}
                 <div className="flex shrink-0 items-center gap-2">
-                  {!currentUser ? (
+                  {/* Compact mobile Forum/Library toggle */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      handleNavigateSection(
+                        activeSection === 'forum' ? 'archive' : 'forum'
+                      )
+                    }
+                    className={`theme-control inline-flex h-9 shrink-0 items-center gap-1.5 border px-2.5 text-xs font-medium whitespace-nowrap md:hidden ${
+                      activeSection === 'forum'
+                        ? 'border-[var(--accent-primary)] bg-[var(--accent-soft)] text-[var(--accent-primary)]'
+                        : 'border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--ink-secondary)] hover:border-[var(--accent-primary)]'
+                    }`}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5" />
+                    <span>{activeSection === 'forum' ? 'Thư viện' : 'Diễn đàn'}</span>
+                  </button>
+
+                  {activeSection !== 'archive' && (
+                    <button
+                      type="button"
+                      onClick={handleToggleTheme}
+                      aria-label={
+                        theme === 'dark'
+                          ? 'Chuyển sang giao diện Sáng'
+                          : 'Chuyển sang giao diện Tối'
+                      }
+                      className="theme-control hidden h-9 w-9 shrink-0 items-center justify-center border border-[var(--border-hairline)] bg-[var(--bg-surface)] text-[var(--ink-secondary)] hover:border-[var(--accent-primary)] hover:text-[var(--ink-primary)] sm:inline-flex"
+                    >
+                      {theme === 'dark' ? (
+                        <Sun className="h-3.5 w-3.5 text-[var(--accent-secondary)]" />
+                      ) : (
+                        <Moon className="h-3.5 w-3.5 text-[var(--accent-primary)]" />
+                      )}
+                    </button>
+                  )}
+
+                  {!authReady ? (
+                    <div
+                      aria-label="Đang đồng bộ phiên đăng nhập"
+                      className="theme-control h-9 w-24 animate-pulse border border-[var(--border-hairline)] bg-[var(--bg-subtle)]"
+                    />
+                  ) : !currentUser ? (
                     <>
                       <button
                         type="button"
@@ -754,7 +982,7 @@ export default function App() {
                           setAuthModal({ open: true, mode: 'login' });
                         }}
                         onMouseEnter={() => sfx.play('hover')}
-                        className="theme-control inline-flex h-9 shrink-0 items-center gap-1.5 border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3.5 text-xs font-semibold whitespace-nowrap text-[var(--ink-primary)] hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
+                        className="theme-control inline-flex h-9 shrink-0 items-center gap-1.5 border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 text-xs font-semibold whitespace-nowrap text-[var(--ink-primary)] hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)] sm:px-3.5"
                       >
                         <LogIn className="h-3.5 w-3.5" />
                         <span>Đăng nhập</span>
@@ -766,7 +994,7 @@ export default function App() {
                           setAuthModal({ open: true, mode: 'register' });
                         }}
                         onMouseEnter={() => sfx.play('hover')}
-                        className="theme-control inline-flex h-9 shrink-0 items-center gap-1.5 bg-[var(--accent-primary)] px-3.5 text-xs font-semibold whitespace-nowrap text-[var(--accent-ink)] hover:bg-[var(--accent-hover)]"
+                        className="theme-control inline-flex h-9 shrink-0 items-center gap-1.5 bg-[var(--accent-primary)] px-3 text-xs font-semibold whitespace-nowrap text-[var(--accent-ink)] hover:bg-[var(--accent-hover)] sm:px-3.5"
                       >
                         <UserPlus className="h-3.5 w-3.5" />
                         <span className="hidden sm:inline">Đăng ký</span>
@@ -842,6 +1070,16 @@ export default function App() {
                               </div>
 
                               <div className="py-1">
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => handleNavigateSection('profile')}
+                                  className="theme-control flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs font-medium text-[var(--ink-primary)] hover:bg-[var(--bg-subtle)]"
+                                >
+                                  <User className="h-3.5 w-3.5 text-[var(--accent-primary)]" />
+                                  <span>Hồ sơ của tôi</span>
+                                </button>
+
                                 {isAdmin && (
                                   <button
                                     type="button"
@@ -859,11 +1097,8 @@ export default function App() {
                                   role="menuitem"
                                   onClick={() => {
                                     sfx.play('filterSelect');
-                                    setFavoritesOnly((prev) => !prev);
-                                    setAccountMenuOpen(false);
-                                    document
-                                      .getElementById('collection')
-                                      ?.scrollIntoView({ behavior: 'smooth' });
+                                    setFavoritesOnly(true);
+                                    handleNavigateSection('archive', 'collection');
                                   }}
                                   className="theme-control flex w-full items-center justify-between px-3 py-2 text-left text-xs text-[var(--ink-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--ink-primary)]"
                                 >
@@ -904,8 +1139,8 @@ export default function App() {
                     <MailCheck className="h-4 w-4 shrink-0 text-[var(--accent-primary)]" />
                     <span>
                       Tài khoản <strong>{currentUser.email}</strong> chưa xác
-                      minh email. Hãy xác nhận hộp thư để kích hoạt tính năng
-                      lưu nhân vật yêu thích.
+                      minh email. Hãy xác nhận hộp thư để lưu yêu thích, đăng
+                      bài, bình luận và chỉnh sửa hồ sơ.
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
@@ -930,6 +1165,39 @@ export default function App() {
               </div>
             )}
 
+            {/* ===============================================================
+                SECTION ROUTER: FORUM | PROFILE | LIBRARY ARCHIVE
+               =============================================================== */}
+            {activeSection === 'forum' ? (
+              <ForumSection
+                theme={theme}
+                currentUser={currentUser}
+                isAdmin={isAdmin}
+                posts={forumPosts}
+                comments={forumComments}
+                likes={forumLikes}
+                publicProfiles={publicProfiles}
+                loading={forumLoading}
+                selectedPostId={selectedForumPostId}
+                composerOpen={forumComposerOpen}
+                onSelectPost={setSelectedForumPostId}
+                onComposerOpenChange={setForumComposerOpen}
+                onToggleLike={handleToggleForumLike}
+                onRequireLogin={handleRequireForumLogin}
+                onNotify={showToast}
+              />
+            ) : activeSection === 'profile' && currentUser ? (
+              <ProfileSettingsView
+                theme={theme}
+                currentUser={currentUser}
+                onProfileUpdated={(updated) => setCurrentUser(updated)}
+                onBack={() =>
+                  handleNavigateSection(previousSectionRef.current || 'archive')
+                }
+                onNotify={showToast}
+              />
+            ) : (
+              <>
             {/* ===============================================================
                 EDITORIAL HERO & LIVE ARCHIVE REGISTRY
                =============================================================== */}
@@ -1365,6 +1633,14 @@ export default function App() {
 
                   <div className="flex flex-col justify-between gap-5 md:col-span-6 md:items-end md:text-right">
                     <div className="flex flex-wrap items-center gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleNavigateSection('forum')}
+                        className="theme-control inline-flex h-10 items-center gap-1.5 border border-[var(--border-hairline)] px-4 text-xs font-medium text-[var(--ink-secondary)] hover:border-[var(--accent-primary)] hover:text-[var(--ink-primary)]"
+                      >
+                        <MessageSquare className="h-3.5 w-3.5" />
+                        <span>Mở Diễn đàn</span>
+                      </button>
                       {isAdmin && (
                         <button
                           type="button"
@@ -1395,6 +1671,8 @@ export default function App() {
                 </div>
               </div>
             </footer>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -1446,11 +1724,20 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Guest Login Prompt Modal (triggered when Guest clicks member-only feature) */}
+      {/* Guest Login Prompt Modal (triggered only when Guest clicks member-only feature) */}
       <AnimatePresence>
-        {loginPromptOpen && (
+        {loginPromptOpen && !currentUser && (
           <LoginPromptModal
             theme={theme}
+            reason={
+              pendingGuestAction?.type === 'forum_compose'
+                ? 'Vui lòng đăng nhập để tạo bài đăng mới trên diễn đàn. Sau khi đăng nhập, bạn sẽ quay lại đúng trang diễn đàn đang xem.'
+                : pendingGuestAction?.type === 'forum_comment'
+                  ? 'Vui lòng đăng nhập để bình luận hoặc trả lời bài viết. Sau khi đăng nhập, bạn sẽ quay lại đúng bài viết đang xem.'
+                  : pendingGuestAction?.type === 'forum_like'
+                    ? 'Vui lòng đăng nhập để thích bài viết trên diễn đàn. Sau khi đăng nhập, lượt thích của bạn sẽ được tự động cập nhật.'
+                    : 'Hãy đăng nhập hoặc tạo tài khoản để tiếp tục. Sau khi đăng nhập, bạn sẽ quay lại đúng trang đang xem.'
+            }
             onOpenLogin={() => {
               setLoginPromptOpen(false);
               setAuthModal({ open: true, mode: 'login' });
@@ -1467,9 +1754,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Login / Register Modal */}
+      {/* Login / Register Modal (never rendered while already signed in) */}
       <AnimatePresence>
-        {authModal.open && (
+        {authModal.open && !currentUser && (
           <AuthModal
             mode={authModal.mode}
             theme={theme}

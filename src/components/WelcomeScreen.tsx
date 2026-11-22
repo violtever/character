@@ -2,16 +2,15 @@ import { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
 import {
   ArrowRight,
-  LogIn,
   Moon,
   Shield,
   Sun,
-  UserPlus,
   Volume2,
   VolumeX,
 } from 'lucide-react';
 import { ARCHIVE_META } from '../config/mediaConfig';
 import type { ThemeMode, UserProfile } from '../types/archive';
+import { musicPlayer } from '../utils/musicEngine';
 import { sfx } from '../utils/sfxEngine';
 import { BrandWordmark } from './BrandWordmark';
 import { ParticleField } from './ParticleField';
@@ -23,11 +22,9 @@ interface WelcomeScreenProps {
   sfxEnabled: boolean;
   onToggleSfx: () => void;
   recordCount: number;
+  authReady: boolean;
   currentUser: UserProfile | null;
   onEnter: () => void;
-  onOpenLogin: () => void;
-  onOpenRegister: () => void;
-  onEnterAdmin: () => void;
 }
 
 export function WelcomeScreen({
@@ -36,11 +33,9 @@ export function WelcomeScreen({
   sfxEnabled,
   onToggleSfx,
   recordCount,
+  authReady,
   currentUser,
   onEnter,
-  onOpenLogin,
-  onOpenRegister,
-  onEnterAdmin,
 }: WelcomeScreenProps) {
   const [entering, setEntering] = useState(false);
   const [clock, setClock] = useState(() => new Date());
@@ -66,12 +61,15 @@ export function WelcomeScreen({
   const handleEnterClick = () => {
     if (entering) return;
     sfx.unlock();
+    musicPlayer.unlock();
     sfx.play('welcomeClick');
     setEntering(true);
     window.setTimeout(() => {
       onEnter();
     }, 580);
   };
+
+  const userInitial = (currentUser?.displayName || 'U').charAt(0).toUpperCase();
 
   return (
     <motion.section
@@ -218,36 +216,52 @@ export function WelcomeScreen({
           {ARCHIVE_META.tagline}
         </motion.p>
 
-        {/* Signed-in welcome indicator if already authenticated */}
-        {currentUser && (
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="mt-4 text-xs text-[var(--ink-muted)]"
+        {/* Real synced session indicator if user is already signed in */}
+        {authReady && currentUser && (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-5 inline-flex items-center gap-2.5 text-xs text-[var(--ink-secondary)]"
           >
-            Đang đăng nhập với tên{' '}
-            <strong className="text-[var(--ink-primary)]">
-              {currentUser.displayName}
-            </strong>{' '}
-            ·{' '}
-            <span>
-              {currentUser.role === 'admin' ? 'Quản trị viên' : 'Thành viên'}
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full border border-[var(--border-strong)] bg-[var(--accent-soft)] text-[11px] font-semibold text-[var(--accent-primary)]">
+              {currentUser.photoURL ? (
+                <img
+                  src={currentUser.photoURL}
+                  alt={currentUser.displayName}
+                  referrerPolicy="no-referrer"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                userInitial
+              )}
             </span>
-          </motion.p>
+            <span>
+              Xin chào,{' '}
+              <strong className="text-[var(--ink-primary)]">
+                {currentUser.displayName}
+              </strong>
+            </span>
+            {currentUser.role === 'admin' && currentUser.emailVerified && (
+              <span className="inline-flex items-center gap-1 font-mono-archive text-[10px] font-semibold tracking-wider text-[var(--accent-primary)] uppercase">
+                <Shield className="h-3 w-3" />
+                ADMIN
+              </span>
+            )}
+          </motion.div>
         )}
 
-        {/* Primary & Auth Actions (Public Archive first — no forced login!) */}
+        {/* Single primary entrance action — no Login/Register buttons on Welcome screen */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.78, delay: 0.62, ease: [0.22, 1, 0.36, 1] }}
-          className="mt-9 flex flex-wrap items-center justify-center gap-3"
+          className="mt-9 flex items-center justify-center"
         >
           <button
             type="button"
             onClick={handleEnterClick}
             onMouseEnter={() => sfx.play('hover')}
-            className="theme-control group relative inline-flex h-12 items-center gap-2.5 overflow-hidden border border-[var(--accent-primary)] bg-[var(--accent-primary)] px-7 text-xs font-semibold tracking-[0.14em] whitespace-nowrap text-[var(--accent-ink)] uppercase hover:-translate-y-0.5 hover:bg-[var(--accent-hover)] hover:shadow-[0_14px_34px_-10px_var(--glow-ambient)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent-primary)]"
+            className="theme-control group relative inline-flex h-12 items-center gap-2.5 overflow-hidden border border-[var(--accent-primary)] bg-[var(--accent-primary)] px-8 text-xs font-semibold tracking-[0.14em] whitespace-nowrap text-[var(--accent-ink)] uppercase hover:-translate-y-0.5 hover:bg-[var(--accent-hover)] hover:shadow-[0_14px_34px_-10px_var(--glow-ambient)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--accent-primary)]"
           >
             <span
               aria-hidden="true"
@@ -256,54 +270,6 @@ export function WelcomeScreen({
             <span className="relative">TRUY CẬP THƯ VIỆN</span>
             <ArrowRight className="relative h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
           </button>
-
-          {!currentUser ? (
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  sfx.unlock();
-                  sfx.play('filterSelect');
-                  onOpenLogin();
-                }}
-                onMouseEnter={() => sfx.play('hover')}
-                className="theme-control inline-flex h-12 items-center gap-2 border border-[var(--border-strong)] bg-[var(--bg-surface)]/85 px-5 text-xs font-semibold tracking-[0.12em] whitespace-nowrap text-[var(--ink-primary)] uppercase backdrop-blur-sm hover:-translate-y-0.5 hover:border-[var(--accent-primary)] hover:text-[var(--accent-primary)]"
-              >
-                <LogIn className="h-3.5 w-3.5" />
-                <span>ĐĂNG NHẬP</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  sfx.unlock();
-                  sfx.play('filterSelect');
-                  onOpenRegister();
-                }}
-                onMouseEnter={() => sfx.play('hover')}
-                className="theme-control inline-flex h-12 items-center gap-2 border border-[var(--border-hairline)] bg-[var(--bg-surface)]/70 px-5 text-xs font-semibold tracking-[0.12em] whitespace-nowrap text-[var(--ink-secondary)] uppercase backdrop-blur-sm hover:-translate-y-0.5 hover:border-[var(--accent-primary)] hover:text-[var(--ink-primary)]"
-              >
-                <UserPlus className="h-3.5 w-3.5" />
-                <span>ĐĂNG KÝ</span>
-              </button>
-            </>
-          ) : (
-            currentUser.role === 'admin' && (
-              <button
-                type="button"
-                onClick={() => {
-                  sfx.unlock();
-                  sfx.play('openCharacter');
-                  onEnterAdmin();
-                }}
-                onMouseEnter={() => sfx.play('hover')}
-                className="theme-control inline-flex h-12 items-center gap-2 border border-[var(--border-strong)] bg-[var(--bg-surface)]/88 px-5 text-xs font-semibold tracking-[0.12em] whitespace-nowrap text-[var(--accent-primary)] uppercase backdrop-blur-sm hover:-translate-y-0.5 hover:border-[var(--accent-primary)]"
-              >
-                <Shield className="h-3.5 w-3.5" />
-                <span>TRUNG TÂM QUẢN TRỊ</span>
-              </button>
-            )
-          )}
         </motion.div>
 
         <motion.p

@@ -1115,7 +1115,7 @@ export function MusicManagerSection({
               </p>
               <p className="mt-1 text-xs text-[var(--ink-muted)]">
                 {tracks.length === 0
-                  ? 'Hãy tải lên bài hát đầu tiên ở biểu mẫu phía trên — hiện trình phát đang dùng giai điệu lưu trữ mặc định.'
+                  ? 'Hãy tải lên bài hát đầu tiên ở biểu mẫu phía trên để thêm vào danh sách phát của website.'
                   : 'Hãy thử tìm với tên bài hát hoặc tên nghệ sĩ khác.'}
               </p>
             </div>

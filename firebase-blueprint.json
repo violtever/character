@@ -198,7 +198,7 @@
         },
         "photoURL": {
           "type": "string",
-          "maxLength": 1000
+          "maxLength": 250000
         },
         "createdAt": {
           "type": "string",
@@ -401,6 +401,81 @@
         }
       },
       "required": ["trackId", "chunkIndex", "audioVersion", "data", "createdAt"]
+    },
+    "PublicProfile": {
+      "title": "PublicProfile",
+      "description": "Non-PII public display identity (displayName, username, photoURL, verified role) synced across the Forum and Header.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "username": { "type": "string", "minLength": 3, "maxLength": 32, "pattern": "^[a-z0-9_\\-]+$" },
+        "photoURL": { "type": "string", "maxLength": 250000 },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "username", "photoURL", "role", "updatedAt"]
+    },
+    "ForumPost": {
+      "title": "ForumPost",
+      "description": "A community or admin forum post with backend-enforced pin, feature, and authorRole controls.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "authorRole": { "type": "string", "enum": ["user", "admin"] },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "authorUsername": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "authorPhotoURL": { "type": "string", "maxLength": 250000 },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 10000 },
+        "image": { "type": "string", "maxLength": 250000 },
+        "isPinned": { "type": "boolean" },
+        "pinnedAt": { "type": "number" },
+        "pinOrder": { "type": "number" },
+        "isFeatured": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "authorId", "authorRole", "authorName", "authorUsername", "authorPhotoURL",
+        "title", "content", "image", "isPinned", "pinnedAt", "pinOrder", "isFeatured",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "ForumComment": {
+      "title": "ForumComment",
+      "description": "A comment or nested reply on a forum post.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "postId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "parentCommentId": { "type": "string", "maxLength": 64 },
+        "authorId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "authorRole": { "type": "string", "enum": ["user", "admin"] },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "authorUsername": { "type": "string", "minLength": 1, "maxLength": 32 },
+        "authorPhotoURL": { "type": "string", "maxLength": 250000 },
+        "content": { "type": "string", "minLength": 1, "maxLength": 3000 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id", "postId", "parentCommentId", "authorId", "authorRole",
+        "authorName", "authorUsername", "authorPhotoURL", "content",
+        "createdAt", "updatedAt"
+      ]
+    },
+    "ForumLike": {
+      "title": "ForumLike",
+      "description": "A unique per-user like record on a forum post.",
+      "type": "object",
+      "properties": {
+        "postId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["postId", "userId", "createdAt"]
     }
   },
   "firestore": {
@@ -426,7 +501,23 @@
     },
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/UserProfile" },
-      "description": "PII-isolated user profiles; readable only by owner or admin; role immutable by regular users."
+      "description": "PII-isolated user profiles; readable only by owner or admin; username, email, and role immutable by regular users."
+    },
+    "/publicProfiles/{userId}": {
+      "schema": { "$ref": "#/entities/PublicProfile" },
+      "description": "Non-PII public display profiles synced for live avatar, displayName, and verified role across the Forum."
+    },
+    "/forumPosts/{postId}": {
+      "schema": { "$ref": "#/entities/ForumPost" },
+      "description": "Publicly readable forum posts; authenticated users manage own posts; only verified admins can pin, feature, or assign admin role."
+    },
+    "/forumComments/{commentId}": {
+      "schema": { "$ref": "#/entities/ForumComment" },
+      "description": "Publicly readable forum comments and nested replies; users manage own comments; admins may moderate."
+    },
+    "/forumLikes/{likeId}": {
+      "schema": { "$ref": "#/entities/ForumLike" },
+      "description": "Publicly readable unique per-user likes keyed by {postId}_{userId}."
     },
     "/users/{userId}/favorites/{characterId}": {
       "schema": { "$ref": "#/entities/UserFavorite" },

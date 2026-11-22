@@ -1,21 +1,12 @@
 import type { MusicTrack, SfxName } from '../types/archive';
-import coverOceanWindow from '../assets/images/decor_ocean_window_1795314143372.jpg';
-import coverWineRoses from '../assets/images/decor_wine_roses_1795314143143.jpg';
-import coverVintageLibrary from '../assets/images/decor_vintage_library_1795314143503.jpg';
 
 /**
  * ============================================================================
  * CẤU HÌNH THƯƠNG HIỆU, NHẠC NỀN & SOUND EFFECTS — XOCYBERLUV'S CHARACTER ARCHIVE
  * ============================================================================
  *
- * 1. Nhạc nền (Background Music):
- *    - Đặt file `.mp3` hoặc `.ogg` vào thư mục `public/audio/`.
- *    - Điền đường dẫn vào trường `src` (ví dụ: `'/audio/nhac-nen-1.mp3'`).
- *    - Nếu để trống `""`, trình phát sẽ tự động chạy bản nhạc ambient tích hợp sẵn.
- *
- * 2. Hiệu ứng âm thanh (Sound Effects):
- *    - Đặt file âm thanh ngắn (`.mp3`, `.ogg`, `.wav`) vào `public/sfx/`.
- *    - Điền đường dẫn tương ứng vào `SFX_FILE_PATHS` bên dưới.
+ * Danh sách nhạc nền được quản lý trực tiếp từ cơ sở dữ liệu trong
+ * Trung tâm quản trị -> Quản lý nhạc. Không dùng bài hát mẫu hay autoplay mẫu.
  */
 
 export const ARCHIVE_META = {
@@ -48,35 +39,8 @@ export const PERSONAL_QUOTES: Array<{ text: string; note: string }> = [
   },
 ];
 
-export const MUSIC_TRACKS: MusicTrack[] = [
-  {
-    id: 'track-1',
-    title: 'Nocturne in Porcelain',
-    artist: 'Giai điệu lưu trữ · I',
-    src: '', // <-- THAY BẰNG FILE MP3/OGG CỦA BẠN, VD: '/audio/track-1.mp3'
-    cover: coverOceanWindow,
-    duration: 216,
-    ambientPreset: 'porcelain',
-  },
-  {
-    id: 'track-2',
-    title: 'Velvet Burgundy Waltz',
-    artist: 'Giai điệu lưu trữ · II',
-    src: '', // <-- THAY BẰNG FILE MP3/OGG CỦA BẠN, VD: '/audio/track-2.mp3'
-    cover: coverWineRoses,
-    duration: 244,
-    ambientPreset: 'burgundy',
-  },
-  {
-    id: 'track-3',
-    title: 'Quiet Library Rain',
-    artist: 'Giai điệu lưu trữ · III',
-    src: '', // <-- THAY BẰNG FILE MP3/OGG CỦA BẠN, VD: '/audio/track-3.mp3'
-    cover: coverVintageLibrary,
-    duration: 198,
-    ambientPreset: 'library',
-  },
-];
+// Không chứa bài hát placeholder — playlist chỉ lấy dữ liệu thực tế do Admin tải lên
+export const MUSIC_TRACKS: MusicTrack[] = [];
 
 export const SFX_FILE_PATHS: Record<SfxName, string> = {
   welcomeClick: '',

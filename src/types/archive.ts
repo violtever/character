@@ -82,9 +82,60 @@ export interface UserProfile {
   updatedAt?: number;
 }
 
+export type AppSection = 'archive' | 'forum' | 'profile';
+
+export interface PublicUserProfile {
+  uid: string;
+  displayName: string;
+  username: string;
+  photoURL: string;
+  role: 'user' | 'admin';
+  updatedAt?: number;
+}
+
+export interface ForumPost {
+  id: string;
+  authorId: string;
+  authorRole: 'user' | 'admin';
+  authorName: string;
+  authorUsername: string;
+  authorPhotoURL: string;
+  title: string;
+  content: string;
+  image: string;
+  isPinned: boolean;
+  pinnedAt: number;
+  pinOrder: number;
+  isFeatured: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ForumComment {
+  id: string;
+  postId: string;
+  parentCommentId: string;
+  authorId: string;
+  authorRole: 'user' | 'admin';
+  authorName: string;
+  authorUsername: string;
+  authorPhotoURL: string;
+  content: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ForumLike {
+  id: string;
+  postId: string;
+  userId: string;
+  createdAt: number;
+}
+
 export interface PendingGuestAction {
-  type: 'favorite';
-  characterId: string;
+  type: 'favorite' | 'forum_like' | 'forum_compose' | 'forum_comment';
+  characterId?: string;
+  postId?: string;
 }
 
 export type RepeatMode = 'all' | 'one' | 'off';

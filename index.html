@@ -24,13 +24,34 @@
     <script>
       (function () {
         try {
-          var saved = localStorage.getItem('character_archive_theme');
+          var saved =
+            localStorage.getItem('xocyberluv_archive_theme') ||
+            localStorage.getItem('character_archive_theme');
           if (saved === 'dark') {
             document.documentElement.classList.add('dark');
           } else {
             document.documentElement.classList.remove('dark');
           }
         } catch (e) {}
+
+        // Prevent third-party browser extensions (e.g. VPN/proxy interceptors)
+        // from bubbling getter-only window.fetch errors into the app runtime.
+        window.addEventListener(
+          'error',
+          function (event) {
+            var src = (event && event.filename) || '';
+            var msg = (event && event.message) || '';
+            if (
+              (src.indexOf('chrome-extension://') === 0 ||
+                src.indexOf('moz-extension://') === 0) &&
+              msg.indexOf('Cannot set property fetch') !== -1
+            ) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          },
+          true
+        );
       })();
     </script>
   </head>
