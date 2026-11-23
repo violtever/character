@@ -16,6 +16,7 @@ export interface MusicSnapshot {
   duration: number;
   repeatMode: RepeatMode;
   playbackNotice: string | null;
+  autoplayBlocked: boolean;
 }
 
 type Listener = (snapshot: MusicSnapshot) => void;
@@ -33,10 +34,16 @@ class BackgroundMusicEngine {
   private duration = 0;
   private repeatMode: RepeatMode = 'all';
   private playbackNotice: string | null = null;
+  private autoplayBlocked = false;
 
   private htmlAudio: HTMLAudioElement | null = null;
   private loadedTrackKey: string | null = null;
   private playRequestSeq = 0;
+
+  // Tracks whether loading-screen autoplay was requested before tracks arrived
+  private pendingAutoplay = false;
+  // Detacher for one-time gesture resume if browser blocks async autoplay
+  private gestureResumeCleanup: (() => void) | null = null;
 
   public subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -64,6 +71,7 @@ class BackgroundMusicEngine {
       duration: this.duration,
       repeatMode: this.repeatMode,
       playbackNotice: this.playbackNotice,
+      autoplayBlocked: this.autoplayBlocked,
     };
   }
 
@@ -74,6 +82,29 @@ class BackgroundMusicEngine {
 
   private trackSourceKey(track: MusicTrack): string {
     return `${track.id}:${track.audioType ?? 'url'}:${track.audioVersion ?? 1}:${track.src}`;
+  }
+
+  private clearGestureResumeListener(): void {
+    if (this.gestureResumeCleanup) {
+      this.gestureResumeCleanup();
+      this.gestureResumeCleanup = null;
+    }
+  }
+
+  private attachGestureResumeListener(): void {
+    if (typeof window === 'undefined' || this.gestureResumeCleanup) return;
+    const handleGesture = () => {
+      this.clearGestureResumeListener();
+      if (!this.isPlaying && this.autoplayBlocked && this.playlist.length > 0) {
+        void this.play();
+      }
+    };
+    window.addEventListener('pointerdown', handleGesture, { passive: true });
+    window.addEventListener('keydown', handleGesture, { passive: true });
+    this.gestureResumeCleanup = () => {
+      window.removeEventListener('pointerdown', handleGesture);
+      window.removeEventListener('keydown', handleGesture);
+    };
   }
 
   private ensureHtmlAudio(): HTMLAudioElement {
@@ -125,9 +156,8 @@ class BackgroundMusicEngine {
   }
 
   /**
-   * Primes the reusable HTMLAudioElement inside a user gesture (such as clicking
-   * "TRUY CẬP THƯ VIỆN") and pre-warms the first track's audio cache silently
-   * so playback can begin automatically when the loading screen appears.
+   * Primes the single reusable HTMLAudioElement inside a user gesture and
+   * warms up the first track's audio source so playback can begin seamlessly.
    */
   public unlock(): void {
     if (typeof window === 'undefined') return;
@@ -136,15 +166,74 @@ class BackgroundMusicEngine {
       try {
         audio.load();
       } catch {
-        // Ignore load noop errors
+        // Ignore noop load errors
       }
     }
     const track = this.getTrack();
     if (track && track.audioType === 'chunks') {
       void this.resolvePlayableUrl(track).catch(() => {
-        // Preload errors will be handled when play() runs
+        // Handled during play()
       });
     }
+  }
+
+  /**
+   * Called directly from the Welcome Screen enter click handler so background
+   * music starts immediately as the Loading Screen appears, preserving the
+   * browser's transient user gesture activation and continuing uninterrupted
+   * into the Main Website using the single HTMLAudioElement instance.
+   */
+  public startAutoplayFromGesture(): void {
+    this.unlock();
+
+    // Never restart or duplicate audio if already actively playing
+    if (this.isPlaying) {
+      this.pendingAutoplay = false;
+      return;
+    }
+
+    if (this.playlist.length === 0) {
+      // Tracks are still arriving from Firestore; auto-start as soon as they arrive
+      this.pendingAutoplay = true;
+      return;
+    }
+
+    this.pendingAutoplay = false;
+    void this.play();
+  }
+
+  /**
+   * Resolves once the initial track has either started playing, reached ready
+   * metadata, been blocked by browser policy, or hit a safe cap so the Loading
+   * Screen reflects genuine audio initialization without ever freezing.
+   */
+  public waitForInitialAudioReady(timeoutMs = 2000): Promise<void> {
+    if (this.playlist.length === 0 || this.isPlaying || this.autoplayBlocked) {
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        unsub();
+        resolve();
+      };
+
+      const timer = window.setTimeout(done, timeoutMs);
+      const unsub = this.subscribe((snap) => {
+        if (
+          snap.isPlaying ||
+          snap.autoplayBlocked ||
+          snap.playlist.length === 0 ||
+          (!snap.isLoadingTrack && snap.playbackNotice !== null)
+        ) {
+          done();
+        }
+      });
+    });
   }
 
   /**
@@ -171,6 +260,8 @@ class BackgroundMusicEngine {
       this.trackIndex = 0;
       this.isPlaying = false;
       this.isLoadingTrack = false;
+      this.autoplayBlocked = false;
+      this.clearGestureResumeListener();
       this.currentTime = 0;
       this.duration = 0;
       this.playbackNotice = wasPlaying
@@ -186,6 +277,19 @@ class BackgroundMusicEngine {
       this.duration = nextPlaylist[0]?.duration || 0;
       this.playbackNotice = null;
       this.emit();
+
+      // Pre-warm first track silently if chunk-based so click-to-load is instant
+      const firstTrack = nextPlaylist[0];
+      if (firstTrack && firstTrack.audioType === 'chunks') {
+        void this.resolvePlayableUrl(firstTrack).catch(() => {
+          // Handled when play() is triggered
+        });
+      }
+
+      if (this.pendingAutoplay && !this.isPlaying && !this.isLoadingTrack) {
+        this.pendingAutoplay = false;
+        void this.play();
+      }
       return;
     }
 
@@ -314,6 +418,8 @@ class BackgroundMusicEngine {
 
     const reqSeq = ++this.playRequestSeq;
     this.playbackNotice = null;
+    this.autoplayBlocked = false;
+    this.clearGestureResumeListener();
     const sourceKey = this.trackSourceKey(track);
 
     try {
@@ -347,6 +453,7 @@ class BackgroundMusicEngine {
 
       this.isPlaying = true;
       this.isLoadingTrack = false;
+      this.autoplayBlocked = false;
       this.playbackNotice = null;
       this.emit();
     } catch (err) {
@@ -356,8 +463,12 @@ class BackgroundMusicEngine {
 
       const isAutoplayBlocked =
         err instanceof DOMException && err.name === 'NotAllowedError';
+      this.autoplayBlocked = isAutoplayBlocked;
+      if (isAutoplayBlocked) {
+        this.attachGestureResumeListener();
+      }
       this.playbackNotice = isAutoplayBlocked
-        ? 'Trình duyệt chưa cho phép tự động phát. Nhấn nút Phát để nghe nhạc.'
+        ? 'Trình duyệt tạm chặn tự động phát. Nhấn nút Phát để bật nhạc nền.'
         : err instanceof Error
           ? err.message
           : 'Không thể phát bài hát này.';
@@ -366,6 +477,9 @@ class BackgroundMusicEngine {
   }
 
   public pause(): void {
+    this.pendingAutoplay = false;
+    this.autoplayBlocked = false;
+    this.clearGestureResumeListener();
     this.playRequestSeq += 1;
     this.isLoadingTrack = false;
     if (this.htmlAudio) {
@@ -461,6 +575,7 @@ class BackgroundMusicEngine {
     this.resetHtmlAudioSource();
     this.isPlaying = false;
     this.isLoadingTrack = false;
+    this.autoplayBlocked = false;
     this.trackIndex = safeIdx;
     this.currentTime = 0;
     this.playbackNotice = null;

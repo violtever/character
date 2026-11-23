@@ -31,10 +31,7 @@ import {
 } from '../utils/driveService';
 import { sfx } from '../utils/sfxEngine';
 import { musicPlayer } from '../utils/musicEngine';
-import {
-  saveCharacterAdmin,
-  seedInitialDatabase,
-} from '../services/archiveService';
+import { saveCharacterAdmin } from '../services/archiveService';
 
 interface DriveBackupSectionProps {
   adminUid: string;
@@ -187,7 +184,6 @@ export function DriveBackupSection({
         throw new Error('Tệp sao lưu không đúng định dạng dữ liệu.');
       }
 
-      await seedInitialDatabase(adminUid);
       for (const char of data.characters) {
         await saveCharacterAdmin(char, adminUid, false);
       }

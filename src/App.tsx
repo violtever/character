@@ -28,18 +28,12 @@ import {
   X,
 } from 'lucide-react';
 import { ARCHIVE_META, PERSONAL_QUOTES } from './config/mediaConfig';
-import {
-  ALL_CATEGORY_LABEL,
-  DEFAULT_CATEGORY_SEEDS,
-  INITIAL_CHARACTERS,
-} from './data/characters';
-import { INITIAL_GALLERY_ITEMS } from './data/gallery';
+import { ALL_CATEGORY_LABEL } from './data/characters';
 import { auth } from './lib/firebase';
 import {
   addGalleryItemAdmin,
   deleteCharacterAdmin,
   deleteGalleryItemAdmin,
-  seedInitialDatabase,
   subscribeCategories,
   subscribeCharacters,
   subscribeGallery,
@@ -112,7 +106,7 @@ import { DecorGallery } from './components/DecorGallery';
 import { ForumRulesGate } from './components/ForumRulesGate';
 import { ForumSection } from './components/ForumSection';
 import { ImportantAnnouncementPopup } from './components/ImportantAnnouncementPopup';
-import { LoadingScreen } from './components/LoadingScreen';
+import { LoadingScreen, type LoadingTaskItem } from './components/LoadingScreen';
 import { LoginPromptModal } from './components/LoginPromptModal';
 import {
   ModerationWarningModal,
@@ -151,6 +145,35 @@ function loadDismissedAnnouncementIds(): string[] {
   }
 }
 
+function preloadImageUrls(urls: string[], perImageTimeoutMs = 1800): Promise<void> {
+  const uniqueUrls = Array.from(
+    new Set(urls.map((u) => u.trim()).filter((u) => u.length > 0))
+  ).slice(0, 8);
+
+  if (uniqueUrls.length === 0) return Promise.resolve();
+
+  return Promise.all(
+    uniqueUrls.map(
+      (url) =>
+        new Promise<void>((resolve) => {
+          let settled = false;
+          const done = () => {
+            if (settled) return;
+            settled = true;
+            window.clearTimeout(timer);
+            resolve();
+          };
+          const timer = window.setTimeout(done, perImageTimeoutMs);
+          const img = new Image();
+          img.referrerPolicy = 'no-referrer';
+          img.onload = done;
+          img.onerror = done;
+          img.src = url;
+        })
+    )
+  ).then(() => undefined);
+}
+
 export default function App() {
   const [stage, setStage] = useState<ArchiveStage>('welcome');
   const [theme, setTheme] = useState<ThemeMode>(loadInitialTheme);
@@ -171,19 +194,27 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<AppSection>('archive');
   const previousSectionRef = useRef<'archive' | 'forum'>('archive');
 
-  // Live Firestore Archive Collections (Public Read)
-  const [characters, setCharacters] =
-    useState<CharacterRecord[]>(INITIAL_CHARACTERS);
-  const [categories, setCategories] = useState<CategoryRecord[]>(() =>
-    DEFAULT_CATEGORY_SEEDS.map((c) => ({ ...c, id: c.slug }))
-  );
-  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>(
-    INITIAL_GALLERY_ITEMS
-  );
+  // Real website initialization pipeline (starts when entering Loading Screen)
+  const [archiveInitStarted, setArchiveInitStarted] = useState(false);
+  const [loadingRunId, setLoadingRunId] = useState(0);
+  const [charsLoaded, setCharsLoaded] = useState(false);
+  const [catsLoaded, setCatsLoaded] = useState(false);
+  const [galleryLoaded, setGalleryLoaded] = useState(false);
+  const [tracksLoaded, setTracksLoaded] = useState(false);
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
+  const [forumPostsLoaded, setForumPostsLoaded] = useState(false);
+  const [forumCommentsLoaded, setForumCommentsLoaded] = useState(false);
+  const [forumLikesLoaded, setForumLikesLoaded] = useState(false);
+  const [rulesConfigLoaded, setRulesConfigLoaded] = useState(false);
+  const [announcementsLoaded, setAnnouncementsLoaded] = useState(false);
+  const [audioPrepared, setAudioPrepared] = useState(false);
+  const [assetsPrepared, setAssetsPrepared] = useState(false);
+
+  // Live Firestore Archive Collections (Public Read — zero placeholder data)
+  const [characters, setCharacters] = useState<CharacterRecord[]>([]);
+  const [categories, setCategories] = useState<CategoryRecord[]>([]);
+  const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([]);
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
-  const [isCharsDbEmpty, setIsCharsDbEmpty] = useState(true);
-  const [isCatsDbEmpty, setIsCatsDbEmpty] = useState(true);
-  const [isGalleryDbEmpty, setIsGalleryDbEmpty] = useState(true);
 
   // Live Firestore Forum & Public Profile Collections
   const [publicProfiles, setPublicProfiles] = useState<
@@ -235,7 +266,6 @@ export default function App() {
   const [activeWarning, setActiveWarning] =
     useState<ModerationWarningPayload | null>(null);
 
-  const isDbEmpty = isCharsDbEmpty || isCatsDbEmpty || isGalleryDbEmpty;
   const isAdmin = Boolean(
     currentUser && currentUser.role === 'admin' && currentUser.emailVerified
   );
@@ -349,38 +379,54 @@ export default function App() {
     setLoginPromptOpen(false);
   }, [currentUser]);
 
-  // Subscribe to public Firestore collections (accessible to Guests, Users & Admins)
+  // Keep lightweight music playlist synced early so clicking "TRUY CẬP THƯ VIỆN"
+  // can start real background music immediately inside the user click gesture.
   useEffect(() => {
-    const unsubChars = subscribeCharacters((records, empty) => {
-      setCharacters(records);
-      setIsCharsDbEmpty(empty);
-    });
-    const unsubCats = subscribeCategories((cats, empty) => {
-      setCategories(cats);
-      setIsCatsDbEmpty(empty);
-    });
-    const unsubGallery = subscribeGallery((items, empty) => {
-      setGalleryItems(items);
-      setIsGalleryDbEmpty(empty);
-    });
     const unsubTracks = subscribeTracks((dbTracks) => {
       setTracks(dbTracks);
+      setTracksLoaded(true);
+    });
+    return () => {
+      unsubTracks();
+    };
+  }, []);
+
+  // Real website data initialization: runs once the user enters the Loading Screen
+  useEffect(() => {
+    if (!archiveInitStarted) return;
+
+    const unsubChars = subscribeCharacters((records) => {
+      setCharacters(records);
+      setCharsLoaded(true);
+    });
+    const unsubCats = subscribeCategories((cats) => {
+      setCategories(cats);
+      setCatsLoaded(true);
+    });
+    const unsubGallery = subscribeGallery((items) => {
+      setGalleryItems(items);
+      setGalleryLoaded(true);
     });
     const unsubPublicProfiles = subscribePublicProfiles((profiles) => {
       setPublicProfiles(profiles);
+      setProfilesLoaded(true);
     });
     const unsubForumPosts = subscribeForumPosts((posts) => {
       setForumPosts(posts);
       setForumLoading(false);
+      setForumPostsLoaded(true);
     });
     const unsubForumComments = subscribeForumComments((comments) => {
       setForumComments(comments);
+      setForumCommentsLoaded(true);
     });
     const unsubForumLikes = subscribeForumLikes((likes) => {
       setForumLikes(likes);
+      setForumLikesLoaded(true);
     });
     const unsubRulesConfig = subscribeForumRulesConfig((cfg) => {
       setRulesConfig(cfg);
+      setRulesConfigLoaded(true);
       if (hasGuestAcceptedRulesVersion(cfg.version)) {
         setGuestAcceptedVersion(cfg.version);
       }
@@ -388,13 +434,13 @@ export default function App() {
     const unsubImportantAnnouncements = subscribeImportantAnnouncements(
       (items) => {
         setImportantAnnouncements(items);
+        setAnnouncementsLoaded(true);
       }
     );
     return () => {
       unsubChars();
       unsubCats();
       unsubGallery();
-      unsubTracks();
       unsubPublicProfiles();
       unsubForumPosts();
       unsubForumComments();
@@ -402,13 +448,12 @@ export default function App() {
       unsubRulesConfig();
       unsubImportantAnnouncements();
     };
-  }, []);
+  }, [archiveInitStarted]);
 
-  // Prevent bypassing Forum Rules Gate when visiting #forum directly via URL hash
+  // Respect #forum URL hash without ever skipping Welcome -> Loading -> Main flow
   useEffect(() => {
     const syncFromHash = () => {
       if (window.location.hash === '#forum') {
-        setStage('main');
         setActiveSection('forum');
       }
     };
@@ -422,25 +467,177 @@ export default function App() {
     musicPlayer.setPlaylist(tracks);
   }, [tracks]);
 
-  // Automatically start playing real playlist music when reaching the loading screen
-  const autoPlayTriggeredForLoadingRef = useRef(false);
+  // Real audio readiness & autoplay verification while on Loading Screen
   useEffect(() => {
-    if (stage === 'welcome') {
-      autoPlayTriggeredForLoadingRef.current = false;
-      return;
-    }
+    if (stage !== 'loading' || !tracksLoaded) return;
+    let cancelled = false;
+    setAudioPrepared(false);
+
+    const snap = musicPlayer.getSnapshot();
     if (
-      stage === 'loading' &&
-      !autoPlayTriggeredForLoadingRef.current &&
-      tracks.length > 0
+      snap.playlist.length > 0 &&
+      !snap.isPlaying &&
+      !snap.isLoadingTrack &&
+      !snap.autoplayBlocked
     ) {
-      autoPlayTriggeredForLoadingRef.current = true;
-      const snap = musicPlayer.getSnapshot();
-      if (!snap.isPlaying && !snap.isLoadingTrack) {
-        void musicPlayer.play();
-      }
+      void musicPlayer.play();
     }
-  }, [stage, tracks]);
+
+    void musicPlayer.waitForInitialAudioReady(1800).then(() => {
+      if (!cancelled) {
+        setAudioPrepared(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stage, tracksLoaded, loadingRunId]);
+
+  const archiveDataReady = charsLoaded && catsLoaded && galleryLoaded;
+  const communityDataReady =
+    profilesLoaded &&
+    forumPostsLoaded &&
+    forumCommentsLoaded &&
+    forumLikesLoaded &&
+    rulesConfigLoaded &&
+    announcementsLoaded;
+  const audioStepReady = tracksLoaded && audioPrepared;
+
+  // Real font & visible media preloading while on Loading Screen
+  const charactersRef = useRef<CharacterRecord[]>(characters);
+  const galleryRef = useRef<GalleryItem[]>(galleryItems);
+  charactersRef.current = characters;
+  galleryRef.current = galleryItems;
+
+  useEffect(() => {
+    if (stage !== 'loading' || !archiveDataReady) return;
+    let cancelled = false;
+    setAssetsPrepared(false);
+
+    const fontsPromise =
+      typeof document !== 'undefined' && document.fonts?.ready
+        ? document.fonts.ready.then(() => undefined).catch(() => undefined)
+        : Promise.resolve();
+
+    const visibleImageUrls = [
+      ...charactersRef.current.slice(0, 6).map((c) => c.image),
+      ...galleryRef.current.slice(0, 2).map((g) => g.image),
+    ];
+
+    void Promise.all([
+      fontsPromise,
+      preloadImageUrls(visibleImageUrls, 1800),
+    ]).then(() => {
+      if (!cancelled) {
+        setAssetsPrepared(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [stage, archiveDataReady, loadingRunId]);
+
+  // Real weighted loading progress & tasks (zero fake timers)
+  const loadingTasks = useMemo<LoadingTaskItem[]>(
+    () => [
+      { id: 'auth', label: 'Xác thực phiên người dùng', done: authReady },
+      {
+        id: 'archive',
+        label: 'Đồng bộ thư viện nhân vật & thể loại',
+        done: archiveDataReady,
+      },
+      {
+        id: 'community',
+        label: 'Tải diễn đàn & cấu hình nội quy',
+        done: communityDataReady,
+      },
+      {
+        id: 'audio',
+        label: 'Khởi tạo danh sách nhạc nền',
+        done: audioStepReady,
+      },
+      {
+        id: 'assets',
+        label: 'Chuẩn bị phông chữ & hình ảnh hiển thị',
+        done: assetsPrepared,
+      },
+    ],
+    [authReady, archiveDataReady, communityDataReady, audioStepReady, assetsPrepared]
+  );
+
+  const loadingProgress = useMemo(() => {
+    let pct = 0;
+    if (authReady) pct += 15;
+    if (charsLoaded) pct += 12;
+    if (catsLoaded) pct += 9;
+    if (galleryLoaded) pct += 9;
+    if (forumPostsLoaded) pct += 8;
+    if (forumCommentsLoaded && forumLikesLoaded) pct += 6;
+    if (profilesLoaded && rulesConfigLoaded && announcementsLoaded) pct += 6;
+    if (tracksLoaded) pct += 8;
+    if (audioPrepared) pct += 7;
+    if (assetsPrepared) pct += 20;
+    return Math.min(100, pct);
+  }, [
+    authReady,
+    charsLoaded,
+    catsLoaded,
+    galleryLoaded,
+    forumPostsLoaded,
+    forumCommentsLoaded,
+    forumLikesLoaded,
+    profilesLoaded,
+    rulesConfigLoaded,
+    announcementsLoaded,
+    tracksLoaded,
+    audioPrepared,
+    assetsPrepared,
+  ]);
+
+  const loadingComplete =
+    authReady &&
+    archiveDataReady &&
+    communityDataReady &&
+    audioStepReady &&
+    assetsPrepared;
+
+  const loadingStatusLabel = useMemo(() => {
+    if (loadingComplete) return 'Thư viện đã sẵn sàng.';
+    if (!authReady) return 'Đang xác thực phiên người dùng...';
+    if (!archiveDataReady) return 'Đang tải dữ liệu thư viện nhân vật...';
+    if (!communityDataReady) return 'Đang đồng bộ diễn đàn và nội quy...';
+    if (!audioStepReady) return 'Đang khởi tạo trình phát nhạc nền...';
+    return 'Đang tải phông chữ và hình ảnh...';
+  }, [
+    loadingComplete,
+    authReady,
+    archiveDataReady,
+    communityDataReady,
+    audioStepReady,
+  ]);
+
+  // Enter Main Website automatically once actual initialization finishes
+  useEffect(() => {
+    if (stage !== 'loading' || !loadingComplete) return;
+    sfx.play('loadingComplete');
+    const settleTimer = window.setTimeout(() => {
+      setStage('main');
+      window.scrollTo({ top: 0 });
+    }, 280);
+    return () => window.clearTimeout(settleTimer);
+  }, [stage, loadingComplete]);
+
+  // Safety guard so a flaky network/offline Firestore never traps the user forever
+  useEffect(() => {
+    if (stage !== 'loading') return;
+    const failsafe = window.setTimeout(() => {
+      setStage('main');
+      window.scrollTo({ top: 0 });
+    }, 8000);
+    return () => window.clearTimeout(failsafe);
+  }, [stage, loadingRunId]);
 
   // Subscribe to member personal favorites, notifications, rules acceptance & moderation standing
   useEffect(() => {
@@ -557,16 +754,6 @@ export default function App() {
       const targetChar = characters.find((c) => c.id === characterId);
 
       try {
-        if (isCharsDbEmpty) {
-          if (user.role === 'admin') {
-            await seedInitialDatabase(user.uid);
-          } else {
-            showToast(
-              'Thư viện đang hiển thị dữ liệu mẫu chờ Quản trị viên đồng bộ lên cơ sở dữ liệu.'
-            );
-            return;
-          }
-        }
         await toggleUserFavorite(user.uid, characterId, alreadyFav);
         showToast(
           alreadyFav
@@ -577,7 +764,7 @@ export default function App() {
         showToast('Không thể cập nhật mục yêu thích lúc này. Vui lòng thử lại.');
       }
     },
-    [characters, favoriteIds, isCharsDbEmpty, showToast]
+    [characters, favoriteIds, showToast]
   );
 
   const executeForumLikeToggle = useCallback(
@@ -824,13 +1011,11 @@ export default function App() {
   }, [sfxEnabled]);
 
   const handleEnterArchive = useCallback(() => {
-    // Never autoplay placeholder or unrequested music on enter
+    setArchiveInitStarted(true);
+    setAudioPrepared(false);
+    setAssetsPrepared(false);
+    setLoadingRunId((n) => n + 1);
     setStage('loading');
-  }, []);
-
-  const handleLoadingComplete = useCallback(() => {
-    setStage('main');
-    window.scrollTo({ top: 0 });
   }, []);
 
   const handleSignOut = useCallback(async () => {
@@ -1008,9 +1193,6 @@ export default function App() {
       if (!isAdmin || !currentUser) return;
       const target = characters.find((c) => c.id === id);
       try {
-        if (isCharsDbEmpty) {
-          await seedInitialDatabase(currentUser.uid);
-        }
         await deleteCharacterAdmin(id);
         setSelectedCharacterId(null);
         showToast(`Đã xóa nhân vật "${target?.name || id}" khỏi thư viện.`);
@@ -1018,7 +1200,7 @@ export default function App() {
         showToast('Không thể xóa nhân vật. Vui lòng kiểm tra quyền quản trị.');
       }
     },
-    [characters, currentUser, isAdmin, isCharsDbEmpty, showToast]
+    [characters, currentUser, isAdmin, showToast]
   );
 
   const handleCopyLink = useCallback(
@@ -1038,25 +1220,19 @@ export default function App() {
   const handleAddGalleryItem = useCallback(
     async (item: GalleryItem) => {
       if (!isAdmin || !currentUser) return;
-      if (isGalleryDbEmpty) {
-        await seedInitialDatabase(currentUser.uid);
-      }
       await addGalleryItemAdmin(item);
       showToast('Đã thêm ảnh mới vào góc ảnh trang trí!');
     },
-    [currentUser, isAdmin, isGalleryDbEmpty, showToast]
+    [currentUser, isAdmin, showToast]
   );
 
   const handleRemoveGalleryItem = useCallback(
     async (id: string) => {
       if (!isAdmin || !currentUser) return;
-      if (isGalleryDbEmpty) {
-        await seedInitialDatabase(currentUser.uid);
-      }
       await deleteGalleryItemAdmin(id);
       showToast('Đã xóa ảnh khỏi góc ảnh trang trí.');
     },
-    [currentUser, isAdmin, isGalleryDbEmpty, showToast]
+    [currentUser, isAdmin, showToast]
   );
 
   const openAdminCenter = useCallback(
@@ -1127,7 +1303,7 @@ export default function App() {
             onToggleTheme={handleToggleTheme}
             sfxEnabled={sfxEnabled}
             onToggleSfx={handleToggleSfx}
-            recordCount={characters.length}
+            recordCount={archiveInitStarted ? characters.length : null}
             authReady={authReady}
             currentUser={currentUser}
             onEnter={handleEnterArchive}
@@ -1138,8 +1314,11 @@ export default function App() {
           <LoadingScreen
             key="stage-loading"
             theme={theme}
-            recordCount={characters.length}
-            onComplete={handleLoadingComplete}
+            progress={loadingProgress}
+            statusLabel={loadingStatusLabel}
+            tasks={loadingTasks}
+            isComplete={loadingComplete}
+            musicSnapshot={musicSnapshot}
           />
         )}
 
@@ -1164,7 +1343,6 @@ export default function App() {
               forumPosts={forumPosts}
               publicProfiles={publicProfiles}
               rulesConfig={rulesConfig}
-              isDbEmpty={isDbEmpty}
               initialTab={adminView.tab}
               editingCharacter={adminView.editingChar}
               onBackToArchive={() =>
@@ -1212,7 +1390,7 @@ export default function App() {
                   <BrandWordmark theme={theme} size="sm" />
                 </a>
 
-                {/* Zone 2: Clean single-line Vietnamese Navigation */}
+                {/* Zone 2: Clean single-line Vietnamese Navigation with sliding active indicator */}
                 <nav
                   aria-label="Điều hướng chính"
                   className="hidden items-center gap-6 text-sm font-medium text-[var(--ink-secondary)] md:flex"
@@ -1221,22 +1399,29 @@ export default function App() {
                     type="button"
                     onClick={() => handleNavigateSection('archive', 'collection')}
                     onMouseEnter={() => sfx.play('hover')}
-                    className={`shrink-0 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] ${
+                    className={`relative shrink-0 py-1 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] ${
                       activeSection === 'archive'
-                        ? 'font-semibold text-[var(--accent-primary)] underline underline-offset-8'
-                        : 'hover:underline hover:underline-offset-8'
+                        ? 'font-semibold text-[var(--accent-primary)]'
+                        : ''
                     }`}
                   >
-                    Thư viện
+                    <span>Thư viện</span>
+                    {activeSection === 'archive' && (
+                      <motion.span
+                        layoutId="nav-active-underline"
+                        transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                        className="absolute inset-x-0 -bottom-1 h-[2px] rounded-full bg-[var(--accent-primary)]"
+                      />
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={() => handleNavigateSection('forum')}
                     onMouseEnter={() => sfx.play('hover')}
-                    className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] ${
+                    className={`relative inline-flex shrink-0 items-center gap-1.5 py-1 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] ${
                       activeSection === 'forum'
-                        ? 'font-semibold text-[var(--accent-primary)] underline underline-offset-8'
-                        : 'hover:underline hover:underline-offset-8'
+                        ? 'font-semibold text-[var(--accent-primary)]'
+                        : ''
                     }`}
                   >
                     <MessageSquare className="h-3.5 w-3.5" />
@@ -1246,12 +1431,19 @@ export default function App() {
                         ({forumPosts.length})
                       </span>
                     )}
+                    {activeSection === 'forum' && (
+                      <motion.span
+                        layoutId="nav-active-underline"
+                        transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                        className="absolute inset-x-0 -bottom-1 h-[2px] rounded-full bg-[var(--accent-primary)]"
+                      />
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={() => handleNavigateSection('archive', 'gallery')}
                     onMouseEnter={() => sfx.play('hover')}
-                    className="shrink-0 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] hover:underline hover:underline-offset-8"
+                    className="shrink-0 py-1 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)]"
                   >
                     Góc ảnh
                   </button>
@@ -1259,7 +1451,7 @@ export default function App() {
                     type="button"
                     onClick={() => handleNavigateSection('archive', 'notes')}
                     onMouseEnter={() => sfx.play('hover')}
-                    className="shrink-0 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)] hover:underline hover:underline-offset-8"
+                    className="shrink-0 py-1 whitespace-nowrap transition-colors hover:text-[var(--ink-primary)]"
                   >
                     Ghi chú
                   </button>
@@ -1521,8 +1713,17 @@ export default function App() {
             {/* ===============================================================
                 SECTION ROUTER: FORUM | PROFILE | LIBRARY ARCHIVE
                =============================================================== */}
+            <AnimatePresence mode="wait">
             {activeSection === 'forum' ? (
-              currentUser && !rulesAcceptanceLoaded ? (
+              <motion.div
+                key="section-forum"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                className="flex flex-1 flex-col"
+              >
+              {currentUser && !rulesAcceptanceLoaded ? (
                 <div className="relative z-10 flex flex-1 flex-col items-center justify-center py-24 text-center">
                   <div className="h-7 w-7 animate-spin rounded-full border-2 border-[var(--border-strong)] border-t-[var(--accent-primary)]" />
                   <p className="mt-3 text-xs text-[var(--ink-muted)]">
@@ -1566,8 +1767,17 @@ export default function App() {
                   onTriggerWarning={(warning) => setActiveWarning(warning)}
                   onNotify={showToast}
                 />
-              )
+              )}
+              </motion.div>
             ) : activeSection === 'profile' && currentUser ? (
+              <motion.div
+                key="section-profile"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                className="flex flex-1 flex-col"
+              >
               <ProfileSettingsView
                 theme={theme}
                 currentUser={currentUser}
@@ -1580,8 +1790,16 @@ export default function App() {
                 }
                 onNotify={showToast}
               />
+              </motion.div>
             ) : (
-              <>
+              <motion.div
+                key="section-archive"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+                className="flex flex-1 flex-col"
+              >
             {/* ===============================================================
                 EDITORIAL HERO & LIVE ARCHIVE REGISTRY
                =============================================================== */}
@@ -1922,36 +2140,48 @@ export default function App() {
                   <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="theme-card mt-10 flex flex-col items-center justify-center border border-[var(--border-hairline)] bg-[var(--bg-surface)] px-6 py-16 text-center"
+                    className="theme-card mt-10 flex flex-col items-center justify-center border border-dashed border-[var(--border-strong)]/60 bg-[var(--bg-surface)]/80 px-6 py-16 text-center"
                   >
                     <p className="font-mono-archive text-xs tracking-[0.2em] text-[var(--ink-muted)] uppercase">
-                      Không tìm thấy hồ sơ phù hợp
+                      {characters.length === 0
+                        ? 'Thư viện đang sẵn sàng'
+                        : 'Không tìm thấy hồ sơ phù hợp'}
                     </p>
                     <h3 className="font-editorial mt-2 text-3xl font-semibold text-[var(--ink-primary)]">
-                      {favoritesOnly
-                        ? 'Bạn chưa lưu nhân vật yêu thích nào'
-                        : 'Chưa có nhân vật nào khớp với bộ lọc hiện tại'}
+                      {characters.length === 0
+                        ? 'Thư viện hiện chưa có nhân vật nào'
+                        : favoritesOnly
+                          ? 'Bạn chưa lưu nhân vật yêu thích nào'
+                          : 'Chưa có nhân vật nào khớp với bộ lọc hiện tại'}
                     </h3>
                     <p className="mt-2 max-w-md text-sm text-[var(--ink-secondary)]">
-                      {favoritesOnly
-                        ? 'Nhấn biểu tượng trái tim trên bất kỳ thẻ nhân vật nào để cất vào danh sách yêu thích riêng của bạn nhé.'
-                        : 'Hãy thử xóa từ khóa tìm kiếm hoặc chọn thể loại khác để tiếp tục khám phá thư viện.'}
+                      {characters.length === 0
+                        ? isAdmin
+                          ? 'Hãy mở Trung tâm quản trị để thêm hồ sơ nhân vật đầu tiên vào kho lưu trữ của bạn.'
+                          : 'Các hồ sơ nhân vật sẽ được hiển thị tại đây ngay khi được đăng tải.'
+                        : favoritesOnly
+                          ? 'Nhấn biểu tượng trái tim trên bất kỳ thẻ nhân vật nào để cất vào danh sách yêu thích riêng của bạn nhé.'
+                          : 'Hãy thử xóa từ khóa tìm kiếm hoặc chọn thể loại khác để tiếp tục khám phá thư viện.'}
                     </p>
                     <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-                      <button
-                        type="button"
-                        onClick={resetFilters}
-                        className="theme-control h-10 border border-[var(--border-strong)] px-5 text-xs font-medium text-[var(--ink-primary)] hover:border-[var(--accent-primary)]"
-                      >
-                        Xem lại toàn bộ thư viện
-                      </button>
+                      {hasActiveFilters && characters.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={resetFilters}
+                          className="theme-control btn-tactile h-10 border border-[var(--border-strong)] px-5 text-xs font-medium text-[var(--ink-primary)] hover:border-[var(--accent-primary)]"
+                        >
+                          Xem lại toàn bộ thư viện
+                        </button>
+                      )}
                       {isAdmin && (
                         <button
                           type="button"
                           onClick={() => openAdminCenter('form', null)}
-                          className="theme-control h-10 bg-[var(--accent-primary)] px-5 text-xs font-semibold tracking-wider text-[var(--accent-ink)] uppercase hover:bg-[var(--accent-hover)]"
+                          className="theme-control btn-tactile h-10 bg-[var(--accent-primary)] px-5 text-xs font-semibold tracking-wider text-[var(--accent-ink)] uppercase hover:bg-[var(--accent-hover)]"
                         >
-                          Thêm nhân vật mới
+                          {characters.length === 0
+                            ? 'Thêm nhân vật đầu tiên'
+                            : 'Thêm nhân vật mới'}
                         </button>
                       )}
                     </div>
@@ -2055,8 +2285,9 @@ export default function App() {
                 </div>
               </div>
             </footer>
-              </>
+              </motion.div>
             )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>

@@ -30,7 +30,6 @@ import {
   renameCategoryAdmin,
   sanitizeRecordId,
   saveCharacterAdmin,
-  seedInitialDatabase,
   setUserRoleAdmin,
 } from '../services/archiveService';
 import type {
@@ -77,7 +76,6 @@ interface AdminDashboardProps {
   forumPosts: ForumPost[];
   publicProfiles: Record<string, PublicUserProfile>;
   rulesConfig: ForumRulesConfig;
-  isDbEmpty: boolean;
   initialTab?: AdminTab;
   editingCharacter?: CharacterRecord | null;
   onBackToArchive: () => void;
@@ -99,7 +97,6 @@ export function AdminDashboard({
   forumPosts,
   publicProfiles,
   rulesConfig,
-  isDbEmpty,
   initialTab = 'overview',
   editingCharacter = null,
   onBackToArchive,
@@ -116,7 +113,6 @@ export function AdminDashboard({
   }, [initialTab, editingCharacter]);
   const [accounts, setAccounts] = useState<UserProfile[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
-  const [seeding, setSeeding] = useState(false);
 
   // Character list search & delete confirm
   const [charSearch, setCharSearch] = useState('');
@@ -131,7 +127,7 @@ export function AdminDashboard({
   const [formName, setFormName] = useState('');
   const [formSubtitle, setFormSubtitle] = useState('');
   const [formImage, setFormImage] = useState('');
-  const [formGenre, setFormGenre] = useState(categories[0]?.name || 'Fantasy');
+  const [formGenre, setFormGenre] = useState(categories[0]?.name || 'Khác');
   const [formTags, setFormTags] = useState('');
   const [formDesc, setFormDesc] = useState('');
   const [formPlot, setFormPlot] = useState('');
@@ -197,7 +193,7 @@ export function AdminDashboard({
       setFormName('');
       setFormSubtitle('');
       setFormImage('');
-      setFormGenre(categories[0]?.name || 'Original Character');
+      setFormGenre(categories[0]?.name || 'Khác');
       setFormTags('');
       setFormDesc('');
       setFormPlot('');
@@ -224,23 +220,6 @@ export function AdminDashboard({
         .includes(q)
     );
   }, [characters, charSearch]);
-
-  const handleSeedDatabase = async () => {
-    setSeeding(true);
-    try {
-      await seedInitialDatabase(adminUser.uid);
-      sfx.play('welcomeClick');
-      onNotify('Đã đồng bộ bộ dữ liệu mẫu lên cơ sở dữ liệu Firestore!');
-    } catch (err) {
-      onNotify(
-        err instanceof Error
-          ? err.message
-          : 'Không thể đồng bộ dữ liệu mẫu lúc này.'
-      );
-    } finally {
-      setSeeding(false);
-    }
-  };
 
   const handleUploadPortrait = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -286,9 +265,6 @@ export function AdminDashboard({
 
     setSavingChar(true);
     try {
-      if (isDbEmpty) {
-        await seedInitialDatabase(adminUser.uid);
-      }
       await saveCharacterAdmin(
         record,
         adminUser.uid,
@@ -341,9 +317,6 @@ export function AdminDashboard({
     }
     setCatBusy(true);
     try {
-      if (isDbEmpty) {
-        await seedInitialDatabase(adminUser.uid);
-      }
       await createCategoryAdmin(clean, categories.length + 1);
       sfx.play('welcomeClick');
       setNewCategoryName('');
@@ -515,22 +488,6 @@ export function AdminDashboard({
               {adminUser.email})
             </p>
           </div>
-
-          {isDbEmpty && (
-            <button
-              type="button"
-              disabled={seeding}
-              onClick={handleSeedDatabase}
-              className="theme-control inline-flex h-10 shrink-0 items-center gap-2 bg-[var(--accent-primary)] px-4 text-xs font-semibold tracking-wider whitespace-nowrap text-[var(--accent-ink)] uppercase hover:bg-[var(--accent-hover)] disabled:opacity-60"
-            >
-              <Database className="h-3.5 w-3.5" />
-              <span>
-                {seeding
-                  ? 'Đang khởi tạo...'
-                  : 'Đồng bộ dữ liệu mẫu lên Database'}
-              </span>
-            </button>
-          )}
         </div>
 
         {/* Navigation Tabs */}
@@ -638,9 +595,7 @@ export function AdminDashboard({
                   {characters.length}
                 </p>
                 <p className="mt-1 text-xs text-[var(--ink-secondary)]">
-                  {isDbEmpty
-                    ? 'Đang hiển thị bộ mẫu ban đầu'
-                    : 'Đang đồng bộ trực tiếp từ Firestore'}
+                  Đồng bộ trực tiếp từ Firestore
                 </p>
               </div>
 
@@ -770,6 +725,11 @@ export function AdminDashboard({
                     </div>
                   </div>
                 ))}
+                {characters.length === 0 && (
+                  <div className="py-8 text-center text-sm text-[var(--ink-muted)]">
+                    Chưa có nhân vật nào trong cơ sở dữ liệu. Hãy nhấn “Thêm nhân vật” để tạo hồ sơ đầu tiên.
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -884,7 +844,9 @@ export function AdminDashboard({
 
                 {filteredChars.length === 0 && (
                   <div className="p-10 text-center text-sm text-[var(--ink-muted)]">
-                    Không tìm thấy nhân vật nào khớp với từ khóa.
+                    {characters.length === 0
+                      ? 'Chưa có hồ sơ nhân vật nào được lưu. Nhấn “Thêm nhân vật mới” để bắt đầu.'
+                      : 'Không tìm thấy nhân vật nào khớp với từ khóa.'}
                   </div>
                 )}
               </div>
@@ -942,7 +904,7 @@ export function AdminDashboard({
                     type="text"
                     value={formId}
                     onChange={(e) => setFormId(e.target.value)}
-                    placeholder="ARC-007"
+                    placeholder="ARC-001"
                     className={`${inputClass} font-mono-archive`}
                   />
                 </div>
@@ -969,7 +931,7 @@ export function AdminDashboard({
                   type="text"
                   value={formSubtitle}
                   onChange={(e) => setFormSubtitle(e.target.value)}
-                  placeholder="Ví dụ: Người giữ chiếc hộp nhạc mùa đông"
+                  placeholder="Dòng giới thiệu ngắn về nhân vật..."
                   className={inputClass}
                 />
               </div>
@@ -983,7 +945,7 @@ export function AdminDashboard({
                     type="text"
                     value={formImage}
                     onChange={(e) => setFormImage(e.target.value)}
-                    placeholder="https://... hoặc /images/characters/..."
+                    placeholder="https://... hoặc tải ảnh từ thiết bị"
                     className={`${inputClass} flex-1`}
                   />
                   <label className="theme-control inline-flex h-[42px] cursor-pointer items-center justify-center gap-2 border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-4 text-xs font-medium whitespace-nowrap text-[var(--ink-secondary)] hover:border-[var(--accent-primary)] hover:text-[var(--ink-primary)]">

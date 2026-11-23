@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Expand,
+  Image as ImageIcon,
   ImagePlus,
   Plus,
   Trash2,
@@ -33,8 +34,11 @@ export function DecorGallery({
 
   const [photoSrc, setPhotoSrc] = useState('');
   const [caption, setCaption] = useState('');
-  const [date, setDate] = useState('Tháng 11, 2026');
-  const [category, setCategory] = useState('Kỷ niệm · Film');
+  const [date, setDate] = useState(() => {
+    const now = new Date();
+    return `Tháng ${now.getMonth() + 1}, ${now.getFullYear()}`;
+  });
+  const [category, setCategory] = useState('');
   const [span, setSpan] = useState<GalleryItem['span']>('standard');
   const [uploadError, setUploadError] = useState('');
 
@@ -150,9 +154,37 @@ export function DecorGallery({
         )}
       </div>
 
-      {/* Asymmetric Editorial Bento / Masonry Grid */}
-      <div className="mt-10 grid auto-rows-[230px] grid-cols-1 gap-5 sm:grid-cols-2 lg:auto-rows-[260px] lg:grid-cols-12">
-        {items.map((item, idx) => {
+      {/* Asymmetric Editorial Bento / Masonry Grid or Clean Intentional Empty State */}
+      {items.length === 0 ? (
+        <div className="theme-card mt-10 flex flex-col items-center justify-center border border-dashed border-[var(--border-strong)]/60 bg-[var(--bg-surface)]/75 px-6 py-14 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full border border-[var(--border-hairline)] bg-[var(--bg-canvas)] text-[var(--ink-muted)]">
+            <ImageIcon className="h-5 w-5" />
+          </div>
+          <p className="font-editorial mt-4 text-2xl font-semibold text-[var(--ink-primary)]">
+            Chưa có khung hình nào được đăng tải
+          </p>
+          <p className="mt-1.5 max-w-md text-xs leading-relaxed text-[var(--ink-muted)]">
+            {isAdmin
+              ? 'Không gian này sẵn sàng để bạn thêm những bức ảnh kỷ niệm và cảm hứng đầu tiên.'
+              : 'Những khung hình kỷ niệm sẽ xuất hiện tại đây ngay khi được cập nhật.'}
+          </p>
+          {isAdmin && onAddItem && (
+            <button
+              type="button"
+              onClick={() => {
+                sfx.play('filterSelect');
+                setAddingPhoto(true);
+              }}
+              className="theme-control btn-tactile mt-5 inline-flex h-10 items-center gap-2 bg-[var(--accent-primary)] px-5 text-xs font-semibold tracking-wider text-[var(--accent-ink)] uppercase hover:bg-[var(--accent-hover)]"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              <span>Thêm ảnh đầu tiên</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="mt-10 grid auto-rows-[230px] grid-cols-1 gap-5 sm:grid-cols-2 lg:auto-rows-[260px] lg:grid-cols-12">
+          {items.map((item, idx) => {
           const spanClasses =
             item.span === 'wide'
               ? 'lg:col-span-7 lg:row-span-1'
@@ -227,8 +259,9 @@ export function DecorGallery({
               </button>
             </motion.figure>
           );
-        })}
-      </div>
+          })}
+        </div>
+      )}
 
       {/* Fullscreen Lightbox */}
       <AnimatePresence>
@@ -256,7 +289,7 @@ export function DecorGallery({
                 {String(items.length).padStart(2, '0')}
               </span>
               <div className="flex items-center gap-2">
-                {isAdmin && onRemoveItem && items.length > 1 && (
+                {isAdmin && onRemoveItem && items.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
@@ -397,7 +430,7 @@ export function DecorGallery({
                       type="text"
                       value={photoSrc}
                       onChange={(e) => setPhotoSrc(e.target.value)}
-                      placeholder="/images/gallery/anh-decor.jpg"
+                      placeholder="https://... hoặc tải tệp từ thiết bị"
                       className="theme-control flex-1 border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--ink-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
                     />
                     <label className="theme-control inline-flex cursor-pointer items-center gap-1.5 border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3.5 text-xs font-medium whitespace-nowrap text-[var(--ink-secondary)] hover:border-[var(--accent-primary)]">
@@ -421,7 +454,7 @@ export function DecorGallery({
                     type="text"
                     value={caption}
                     onChange={(e) => setCaption(e.target.value)}
-                    placeholder="Ánh nắng chiều qua khung cửa gỗ"
+                    placeholder="Nhập chú thích ngắn cho khung hình..."
                     className="theme-control w-full border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--ink-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
                   />
                 </div>
@@ -464,7 +497,7 @@ export function DecorGallery({
                     type="text"
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    placeholder="Film · Kiến trúc"
+                    placeholder="Nhập nhóm chủ đề..."
                     className="theme-control w-full border border-[var(--border-hairline)] bg-[var(--bg-canvas)] px-3 py-2 text-sm text-[var(--ink-primary)] focus:border-[var(--accent-primary)] focus:outline-none"
                   />
                 </div>

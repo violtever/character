@@ -40,20 +40,20 @@ export function CharacterCard({
         ease: [0.22, 1, 0.36, 1],
       }}
       onMouseEnter={() => sfx.play('hover')}
-      className="theme-card group relative flex flex-col overflow-hidden border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:-translate-y-1.5 hover:border-[var(--accent-primary)]/60 hover:shadow-[var(--card-shadow)]"
+      className="theme-card card-glow-hover group relative flex flex-col overflow-hidden border border-[var(--border-hairline)] bg-[var(--bg-surface)] hover:-translate-y-1.5 hover:border-[var(--accent-primary)]/60 hover:shadow-[var(--card-shadow)]"
     >
       {/* Theme-specific corner ornament */}
       {theme === 'light' ? (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute top-3 right-3 z-20 text-white/90 opacity-0 transition-all duration-300 group-hover:scale-110 group-hover:opacity-100"
+          className="pointer-events-none absolute top-3 right-3 z-20 text-white/95 opacity-0 transition-all duration-300 group-hover:scale-110 group-hover:rotate-12 group-hover:opacity-100"
         >
           <Sparkles className="h-4 w-4 drop-shadow" />
         </span>
       ) : (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute top-2.5 right-2.5 z-20 h-3.5 w-3.5 border-t border-r border-[var(--accent-secondary)]/70 opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+          className="pointer-events-none absolute top-2.5 right-2.5 z-20 h-4 w-4 border-t border-r border-[var(--accent-secondary)]/75 opacity-0 transition-all duration-300 group-hover:scale-105 group-hover:opacity-100"
         />
       )}
 
@@ -67,7 +67,7 @@ export function CharacterCard({
         >
           {showFallback ? (
             <div className="flex h-full w-full flex-col items-center justify-center bg-[var(--bg-elevated)] px-6 text-center">
-              <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[var(--border-strong)] text-[var(--accent-primary)]">
+              <div className="flex h-14 w-14 items-center justify-center rounded-full border border-[var(--border-strong)] text-[var(--accent-primary)] transition-transform duration-300 group-hover:scale-105">
                 <Feather className="h-5 w-5" />
               </div>
               <p className="font-editorial mt-4 text-2xl font-medium text-[var(--ink-primary)]">
@@ -84,30 +84,37 @@ export function CharacterCard({
               referrerPolicy="no-referrer"
               loading="lazy"
               onError={() => setImgFailed(true)}
-              className="h-full w-full object-cover object-top transition-transform duration-700 ease-out group-hover:scale-[1.045]"
+              className="h-full w-full object-cover object-top transition-transform duration-700 ease-out group-hover:scale-[1.055]"
             />
           )}
+
+          {/* Subtle diagonal sheen highlight across portrait on hover */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/12 to-transparent transition-transform duration-1000 ease-out group-hover:translate-x-full"
+          />
 
           {/* Measured bottom scrim for crisp legibility */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/75 via-black/30 to-transparent transition-opacity duration-300 group-hover:from-black/84"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/78 via-black/30 to-transparent transition-opacity duration-300 group-hover:from-black/86"
           />
 
           <div className="absolute inset-x-4 bottom-3.5 flex items-end justify-between text-white">
             <span className="font-mono-archive text-[11px] tracking-[0.16em] text-white/85 uppercase">
               {character.id}
             </span>
-            <span className="inline-flex translate-y-1 items-center gap-1 text-xs font-medium text-white/95 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
+            <span className="inline-flex translate-y-1.5 items-center gap-1 text-xs font-medium text-white/95 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
               <span>Xem hồ sơ</span>
-              <ArrowUpRight className="h-3.5 w-3.5" />
+              <ArrowUpRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
             </span>
           </div>
         </button>
 
         {/* Personal Favorite Heart Button (Member feature; prompts login for Guests) */}
-        <button
+        <motion.button
           type="button"
+          whileTap={{ scale: 0.86 }}
           onClick={(e) => {
             e.stopPropagation();
             sfx.play('favorite');
@@ -122,13 +129,13 @@ export function CharacterCard({
           className={`theme-control absolute top-3 left-3 z-20 flex h-9 w-9 items-center justify-center border backdrop-blur-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
             isFavorited
               ? theme === 'light'
-                ? 'border-[#e280a7] bg-[#e280a7] text-white'
-                : 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-ink)]'
+                ? 'border-[#e280a7] bg-[#e280a7] text-white shadow-[0_8px_18px_-6px_rgba(226,128,167,0.75)]'
+                : 'border-[var(--accent-primary)] bg-[var(--accent-primary)] text-[var(--accent-ink)] shadow-[0_8px_18px_-6px_rgba(181,43,68,0.75)]'
               : 'border-white/25 bg-black/35 text-white/90 hover:bg-black/55 hover:text-white'
           }`}
         >
           <Heart className="h-4 w-4" fill={isFavorited ? 'currentColor' : 'none'} />
-        </button>
+        </motion.button>
       </div>
 
       {/* Editorial text details (zero-pill metadata) */}

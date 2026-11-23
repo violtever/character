@@ -29,9 +29,10 @@
 
   --border-hairline: rgba(94, 128, 194, 0.2);
   --border-strong: rgba(37, 88, 212, 0.34);
-  --glow-ambient: rgba(114, 158, 240, 0.32);
+  --glow-ambient: rgba(114, 158, 240, 0.34);
+  --glow-secondary: rgba(226, 128, 167, 0.26);
   --scrim-base: rgba(24, 38, 76, 0.56);
-  --card-shadow: 0 18px 40px -18px rgba(80, 118, 198, 0.28);
+  --card-shadow: 0 22px 44px -18px rgba(80, 118, 198, 0.32), 0 0 0 1px rgba(37, 88, 212, 0.14);
 
   --radius-card: 1.25rem;
   --radius-panel: 1.5rem;
@@ -59,9 +60,10 @@
 
   --border-hairline: rgba(245, 235, 227, 0.12);
   --border-strong: rgba(217, 167, 156, 0.28);
-  --glow-ambient: rgba(181, 43, 68, 0.34);
+  --glow-ambient: rgba(181, 43, 68, 0.38);
+  --glow-secondary: rgba(217, 167, 156, 0.18);
   --scrim-base: rgba(6, 2, 4, 0.84);
-  --card-shadow: 0 20px 48px -20px rgba(0, 0, 0, 0.85);
+  --card-shadow: 0 24px 52px -18px rgba(0, 0, 0, 0.88), 0 0 28px -10px rgba(181, 43, 68, 0.32);
 
   --radius-card: 0.55rem;
   --radius-panel: 0.75rem;
@@ -125,9 +127,9 @@
 .theme-card {
   border-radius: var(--radius-card);
   transition:
-    transform 320ms var(--ease-theme),
+    transform 340ms var(--ease-theme),
     background-color 480ms cubic-bezier(0.22, 1, 0.36, 1),
-    border-color 360ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 340ms cubic-bezier(0.22, 1, 0.36, 1),
     border-radius 480ms cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 360ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -139,12 +141,39 @@
 .theme-control {
   border-radius: var(--radius-control);
   transition:
-    transform 200ms var(--ease-theme),
+    transform 190ms var(--ease-theme),
     background-color 220ms ease,
     border-color 220ms ease,
     color 220ms ease,
-    box-shadow 220ms ease,
+    box-shadow 240ms ease,
     border-radius 420ms ease;
+}
+
+.btn-tactile {
+  will-change: transform;
+}
+
+.btn-tactile:active:not(:disabled) {
+  transform: scale(0.975);
+}
+
+.card-glow-hover {
+  position: relative;
+}
+
+.card-glow-hover::after {
+  content: '';
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  box-shadow: inset 0 0 0 1px var(--accent-primary), 0 0 32px -12px var(--glow-ambient);
+  transition: opacity 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.card-glow-hover:hover::after {
+  opacity: 0.72;
 }
 
 /* Light mode dreamy background veil vs Dark mode gothic velvet vignette */
@@ -178,12 +207,12 @@
     transform: translate3d(0, 0px, 0) rotate(0deg);
   }
   50% {
-    transform: translate3d(0, -7px, 0) rotate(2.5deg);
+    transform: translate3d(0, -8px, 0) rotate(2.6deg);
   }
 }
 
 .animate-dreamy-float {
-  animation: dreamyFloat 6.5s ease-in-out infinite;
+  animation: dreamyFloat 6.8s ease-in-out infinite;
 }
 
 @keyframes ambientBreath {
@@ -199,6 +228,53 @@
 
 .animate-ambient-breath {
   animation: ambientBreath 14s ease-in-out infinite;
+}
+
+@keyframes auroraDrift {
+  0%, 100% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.55;
+  }
+  33% {
+    transform: translate3d(24px, -18px, 0) scale(1.07);
+    opacity: 0.78;
+  }
+  66% {
+    transform: translate3d(-18px, 14px, 0) scale(0.96);
+    opacity: 0.62;
+  }
+}
+
+.animate-aurora-drift {
+  animation: auroraDrift 18s ease-in-out infinite;
+}
+
+@keyframes twinkleSoft {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.9);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scale(1.12);
+  }
+}
+
+.animate-twinkle-soft {
+  animation: twinkleSoft 4.2s ease-in-out infinite;
+}
+
+@keyframes shimmerSweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(220%);
+  }
+}
+
+.animate-shimmer-sweep {
+  animation: shimmerSweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 @keyframes marqueeScroll {
@@ -236,7 +312,7 @@
 }
 
 .animate-scan-sweep {
-  animation: scanSweep 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: scanSweep 2.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .editorial-dropcap::first-letter {
@@ -343,7 +419,10 @@ input[type='range'].archive-range:hover::-webkit-slider-thumb {
   }
 
   .animate-ambient-breath,
+  .animate-aurora-drift,
   .animate-dreamy-float,
+  .animate-twinkle-soft,
+  .animate-shimmer-sweep,
   .animate-marquee,
   .animate-scan-sweep,
   .animate-warning-shake,

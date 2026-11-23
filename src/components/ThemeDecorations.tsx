@@ -21,9 +21,13 @@ export function ThemeDivider({ theme, className = '' }: ThemeDividerProps) {
         }`}
       />
       {isLight ? (
-        /* Cute dreamy bow + star motif */
+        /* Cute dreamy bow + twinkling star motif */
         <div className="flex items-center gap-2 text-[var(--accent-secondary)]">
-          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+          <svg
+            viewBox="0 0 16 16"
+            className="animate-twinkle-soft h-3.5 w-3.5"
+            fill="currentColor"
+          >
             <path d="M8 1L9.6 6.4L15 8L9.6 9.6L8 15L6.4 9.6L1 8L6.4 6.4L8 1Z" />
           </svg>
           <svg
@@ -53,14 +57,19 @@ export function ThemeDivider({ theme, className = '' }: ThemeDividerProps) {
             />
             <circle cx="12" cy="12" r="2" fill="var(--accent-secondary)" />
           </svg>
-          <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+          <svg
+            viewBox="0 0 16 16"
+            style={{ animationDelay: '-2.1s' }}
+            className="animate-twinkle-soft h-3.5 w-3.5"
+            fill="currentColor"
+          >
             <path d="M8 1L9.6 6.4L15 8L9.6 9.6L8 15L6.4 9.6L1 8L6.4 6.4L8 1Z" />
           </svg>
         </div>
       ) : (
         /* Gothic crimson rose & symmetrical filigree emblem */
         <div className="flex items-center gap-2.5 text-[var(--accent-primary)]">
-          <span className="h-1.5 w-1.5 rotate-45 bg-[var(--accent-secondary)]/70" />
+          <span className="animate-twinkle-soft h-1.5 w-1.5 rotate-45 bg-[var(--accent-secondary)]/80" />
           <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none">
             <path
               d="M12 4C9.5 4 7.5 6 7.5 8.5C7.5 11 9.5 13 12 13C14.5 13 16.5 11 16.5 8.5C16.5 6 14.5 4 12 4Z"
@@ -82,7 +91,10 @@ export function ThemeDivider({ theme, className = '' }: ThemeDividerProps) {
               strokeLinecap="round"
             />
           </svg>
-          <span className="h-1.5 w-1.5 rotate-45 bg-[var(--accent-secondary)]/70" />
+          <span
+            style={{ animationDelay: '-2.1s' }}
+            className="animate-twinkle-soft h-1.5 w-1.5 rotate-45 bg-[var(--accent-secondary)]/80"
+          />
         </div>
       )}
       <span
@@ -103,11 +115,31 @@ interface FloatingDreamyStickersProps {
 export function FloatingDreamyStickers({ theme }: FloatingDreamyStickersProps) {
   if (theme === 'dark') {
     return (
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+      >
+        {/* Soft drifting velvet burgundy ambient light orbs */}
+        <div
+          className="animate-aurora-drift absolute -top-24 right-[-6rem] h-[26rem] w-[26rem] rounded-full blur-3xl"
+          style={{
+            background:
+              'radial-gradient(circle, rgba(181, 43, 68, 0.18) 0%, transparent 70%)',
+          }}
+        />
+        <div
+          style={{
+            animationDelay: '-8s',
+            background:
+              'radial-gradient(circle, rgba(125, 35, 54, 0.16) 0%, transparent 70%)',
+          }}
+          className="animate-aurora-drift absolute bottom-12 -left-24 h-[24rem] w-[24rem] rounded-full blur-3xl"
+        />
+
         {/* Subtle gothic symmetrical top-left & bottom-right crimson rose water-line ornaments */}
         <svg
           viewBox="0 0 120 120"
-          className="absolute top-16 left-8 hidden h-20 w-20 text-[var(--accent-primary)] opacity-20 lg:block"
+          className="absolute top-16 left-8 hidden h-20 w-20 text-[var(--accent-primary)] opacity-25 lg:block"
           fill="none"
         >
           <path d="M8 60V8H60" stroke="currentColor" strokeWidth="1" />
@@ -115,12 +147,13 @@ export function FloatingDreamyStickers({ theme }: FloatingDreamyStickersProps) {
           <path
             d="M32 32L36 24L40 32L48 36L40 40L36 48L32 40L24 36L32 32Z"
             fill="currentColor"
-            fillOpacity="0.4"
+            fillOpacity="0.45"
+            className="animate-twinkle-soft"
           />
         </svg>
         <svg
           viewBox="0 0 120 120"
-          className="absolute right-8 bottom-20 hidden h-20 w-20 rotate-180 text-[var(--accent-primary)] opacity-20 lg:block"
+          className="absolute right-8 bottom-20 hidden h-20 w-20 rotate-180 text-[var(--accent-primary)] opacity-25 lg:block"
           fill="none"
         >
           <path d="M8 60V8H60" stroke="currentColor" strokeWidth="1" />
@@ -128,7 +161,9 @@ export function FloatingDreamyStickers({ theme }: FloatingDreamyStickersProps) {
           <path
             d="M32 32L36 24L40 32L48 36L40 40L36 48L32 40L24 36L32 32Z"
             fill="currentColor"
-            fillOpacity="0.4"
+            fillOpacity="0.45"
+            style={{ animationDelay: '-2s' }}
+            className="animate-twinkle-soft"
           />
         </svg>
       </div>
@@ -136,11 +171,31 @@ export function FloatingDreamyStickers({ theme }: FloatingDreamyStickersProps) {
   }
 
   return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-      {/* Light mode floating dreamy cloud & pastel blossom stickers */}
+    <div
+      aria-hidden="true"
+      className="pointer-events-none absolute inset-0 overflow-hidden"
+    >
+      {/* Soft drifting pastel sky & blush ambient aurora */}
+      <div
+        className="animate-aurora-drift absolute -top-20 -right-24 h-[26rem] w-[26rem] rounded-full blur-3xl"
+        style={{
+          background:
+            'radial-gradient(circle, rgba(226, 128, 167, 0.22) 0%, rgba(158, 134, 227, 0.14) 50%, transparent 74%)',
+        }}
+      />
+      <div
+        style={{
+          animationDelay: '-9s',
+          background:
+            'radial-gradient(circle, rgba(162, 202, 255, 0.34) 0%, transparent 72%)',
+        }}
+        className="animate-aurora-drift absolute bottom-8 -left-24 h-[24rem] w-[24rem] rounded-full blur-3xl"
+      />
+
+      {/* Light mode floating dreamy cloud & pastel blossom motifs */}
       <svg
         viewBox="0 0 96 56"
-        className="animate-dreamy-float absolute top-20 left-[6%] hidden h-12 w-20 text-white/80 drop-shadow-sm lg:block"
+        className="animate-dreamy-float absolute top-20 left-[6%] hidden h-12 w-20 text-white/85 drop-shadow-sm lg:block"
         fill="currentColor"
       >
         <path d="M24 46H72C82 46 88 39.5 88 31.5C88 24 82.4 18 75 17.2C72.2 8.4 63.8 2 53.8 2C42.2 2 32.6 10.6 31.3 21.8C29.4 21.2 27.3 20.8 25.1 20.8C15.6 20.8 8 27.8 8 36.2C8 41.8 14.5 46 24 46Z" />
@@ -149,10 +204,9 @@ export function FloatingDreamyStickers({ theme }: FloatingDreamyStickersProps) {
       <svg
         viewBox="0 0 40 40"
         style={{ animationDelay: '-2.2s' }}
-        className="animate-dreamy-float absolute top-28 right-[9%] hidden h-9 w-9 text-[var(--accent-secondary)] opacity-65 lg:block"
+        className="animate-dreamy-float absolute top-28 right-[9%] hidden h-9 w-9 text-[var(--accent-secondary)] opacity-70 lg:block"
         fill="currentColor"
       >
-        {/* 5-petal dreamy pastel flower */}
         <circle cx="20" cy="11" r="6" fillOpacity="0.65" />
         <circle cx="28.5" cy="17.2" r="6" fillOpacity="0.65" />
         <circle cx="25.2" cy="27.2" r="6" fillOpacity="0.65" />
@@ -168,6 +222,15 @@ export function FloatingDreamyStickers({ theme }: FloatingDreamyStickersProps) {
         fill="currentColor"
       >
         <path d="M16 2L19.4 12.6L30 16L19.4 19.4L16 30L12.6 19.4L2 16L12.6 12.6L16 2Z" />
+      </svg>
+
+      <svg
+        viewBox="0 0 24 24"
+        style={{ animationDelay: '-1.6s' }}
+        className="animate-twinkle-soft absolute right-[14%] bottom-32 hidden h-5 w-5 text-[var(--accent-primary)] opacity-45 lg:block"
+        fill="currentColor"
+      >
+        <path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z" />
       </svg>
     </div>
   );

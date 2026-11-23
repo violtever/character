@@ -724,7 +724,7 @@ export function MusicManagerSection({
                 type="url"
                 value={externalAudioUrl}
                 onChange={(e) => setExternalAudioUrl(e.target.value)}
-                placeholder="https://example.com/music/track.mp3"
+                placeholder="https://... (.mp3, .ogg, .wav)"
                 className={inputClass}
               />
             )}

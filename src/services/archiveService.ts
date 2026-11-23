@@ -22,8 +22,6 @@ import {
   handleFirestoreError,
   OperationType,
 } from '../lib/firebase';
-import { DEFAULT_CATEGORY_SEEDS, INITIAL_CHARACTERS } from '../data/characters';
-import { INITIAL_GALLERY_ITEMS } from '../data/gallery';
 import type {
   CategoryRecord,
   CharacterRecord,
@@ -72,17 +70,13 @@ export function sanitizeRecordId(raw: string): string {
  * Live subscriptions for public archive data (readable by Guest, User, Admin)
  */
 export function subscribeCharacters(
-  onData: (records: CharacterRecord[], isEmptyInDb: boolean) => void
+  onData: (records: CharacterRecord[]) => void
 ): () => void {
   const path = 'characters';
   const q = query(collection(db, path), orderBy('createdAt', 'desc'));
   return onSnapshot(
     q,
     (snap) => {
-      if (snap.empty) {
-        onData(INITIAL_CHARACTERS, true);
-        return;
-      }
       const list: CharacterRecord[] = snap.docs.map((d) => {
         const data = d.data();
         return {
@@ -105,7 +99,7 @@ export function subscribeCharacters(
           updatedAt: toMillis(data.updatedAt),
         };
       });
-      onData(list, false);
+      onData(list);
     },
     (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
@@ -114,20 +108,13 @@ export function subscribeCharacters(
 }
 
 export function subscribeCategories(
-  onData: (categories: CategoryRecord[], isEmptyInDb: boolean) => void
+  onData: (categories: CategoryRecord[]) => void
 ): () => void {
   const path = 'categories';
   const q = query(collection(db, path), orderBy('order', 'asc'));
   return onSnapshot(
     q,
     (snap) => {
-      if (snap.empty) {
-        onData(
-          DEFAULT_CATEGORY_SEEDS.map((c) => ({ ...c, id: c.slug })),
-          true
-        );
-        return;
-      }
       const list: CategoryRecord[] = snap.docs.map((d) => {
         const data = d.data();
         return {
@@ -139,7 +126,7 @@ export function subscribeCategories(
           updatedAt: toMillis(data.updatedAt),
         };
       });
-      onData(list, false);
+      onData(list);
     },
     (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
@@ -148,17 +135,13 @@ export function subscribeCategories(
 }
 
 export function subscribeGallery(
-  onData: (items: GalleryItem[], isEmptyInDb: boolean) => void
+  onData: (items: GalleryItem[]) => void
 ): () => void {
   const path = 'gallery';
   const q = query(collection(db, path), orderBy('createdAt', 'asc'));
   return onSnapshot(
     q,
     (snap) => {
-      if (snap.empty) {
-        onData(INITIAL_GALLERY_ITEMS, true);
-        return;
-      }
       const list: GalleryItem[] = snap.docs.map((d) => {
         const data = d.data();
         const spanVal =
@@ -174,7 +157,7 @@ export function subscribeGallery(
           updatedAt: toMillis(data.updatedAt),
         };
       });
-      onData(list, false);
+      onData(list);
     },
     (error) => {
       handleFirestoreError(error, OperationType.LIST, path);
@@ -517,64 +500,6 @@ export async function updateOwnProfile(params: {
  * ADMIN-ONLY FIRESTORE MUTATIONS (Strictly enforced by firestore.rules!)
  * ============================================================================
  */
-
-export async function seedInitialDatabase(adminUid: string): Promise<void> {
-  const batch = writeBatch(db);
-
-  DEFAULT_CATEGORY_SEEDS.forEach((cat) => {
-    const ref = doc(db, 'categories', cat.slug);
-    batch.set(ref, {
-      name: cat.name.slice(0, 60),
-      slug: cat.slug,
-      order: cat.order,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  });
-
-  INITIAL_CHARACTERS.forEach((char) => {
-    const safeId = sanitizeRecordId(char.id);
-    const ref = doc(db, 'characters', safeId);
-    const payload: Record<string, unknown> = {
-      id: safeId,
-      name: char.name.slice(0, 120),
-      image: char.image.slice(0, 250000),
-      subtitle: char.subtitle.slice(0, 200),
-      genre: char.genre.slice(0, 60),
-      tags: char.tags.slice(0, 15).map((t) => t.slice(0, 40)),
-      description: char.description.slice(0, 2000),
-      plot: char.plot.slice(0, 15000),
-      link: char.link.slice(0, 1000),
-      pinned: Boolean(char.pinned),
-      createdBy: adminUid,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-    if (char.linkLabel) {
-      payload.linkLabel = char.linkLabel.slice(0, 60);
-    }
-    batch.set(ref, payload);
-  });
-
-  INITIAL_GALLERY_ITEMS.forEach((item) => {
-    const ref = doc(db, 'gallery', item.id);
-    batch.set(ref, {
-      image: item.image.slice(0, 250000),
-      caption: item.caption.slice(0, 200),
-      date: item.date.slice(0, 60),
-      category: item.category.slice(0, 80),
-      span: item.span,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    });
-  });
-
-  try {
-    await batch.commit();
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, 'characters');
-  }
-}
 
 export async function saveCharacterAdmin(
   record: CharacterRecord,
